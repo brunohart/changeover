@@ -1,0 +1,61 @@
+{
+  "projection": "PROJECTION_0_1",
+  "changeover": "0.1",
+  "algorithm": "etag = \"1:\" || base64url_unpadded( SHA-256( JCS( project(occasion, PROJECTION_0_1) ) ) )",
+  "canonicalisation": "RFC 8785 (JCS)",
+  "digest": "SHA-256",
+  "truncation": "NOT permitted",
+  "pointer_syntax": {
+    "base": "RFC 6901 JSON Pointer",
+    "extension": "The token `-` denotes EVERY element of the array at that position, in document order. RFC 6901 reserves `-` for the nonexistent element after the last; it can never name a real member, so reusing it as the each-element token introduces no ambiguity. Arrays project in document order, which is why `offers` must be emitted sorted by offer_id under C collation."
+  },
+  "closed": true,
+  "closure_rule": "A member not named here is EXCLUDED. A future version adding a member MUST name it here or it is excluded by default, and adding one is a MAJOR under V2.",
+  "pointers": [
+    "/changeover",
+    "/occasion_id",
+    "/venue/id",
+    "/venue/origin",
+    "/venue/timezone",
+    "/auditorium/id",
+    "/auditorium/seating",
+    "/auditorium/capacity",
+    "/work/eidr",
+    "/work/title/value",
+    "/work/year",
+    "/work/runtime_minutes",
+    "/instant/starts_at",
+    "/instant/local_wall",
+    "/instant/local_wall_offset",
+    "/instant/sales_cutoff_at",
+    "/manner/presentation_classes",
+    "/manner/occasion_classes",
+    "/manner/register_version",
+    "/manner/accessibility",
+    "/availability/mode",
+    "/price_disclosure",
+    "/offers/-/offer_id",
+    "/offers/-/currency",
+    "/offers/-/amount_minor",
+    "/offers/-/price_basis",
+    "/substitution",
+    "/hold_policy"
+  ],
+  "excluded_and_why": {
+    "prose values": "A typo fix cannot invalidate an estate's in-flight resolutions. ONE EXCEPTION, enumerated in SPEC.md §2.2 and resolved in docs/2026-08-25-cx-01-spec-first.md: /work/title/value IS projected, because the title is the assertion about WHICH FILM, and a silent swap of the work must move the etag.",
+    "availability counts and observed_at": "They change every few seconds.",
+    "revision": "MUST increase strictly monotonically on every publish; only etag carries an assertion change.",
+    "showtime_ref, server_time, book_url": "Not assertions about the screening.",
+    "instant.feature_at, instant.ends_at": "Policy arithmetic over an ad reel and a runtime, drifting for reasons that are not assertions about the screening.",
+    "etag": "A digest cannot be inside its own preimage."
+  },
+  "catches": [
+    "a moved start time",
+    "a changed price or price basis",
+    "a changed format",
+    "a changed access provision",
+    "a changed hold policy",
+    "a withdrawn or added non-substitutability assertion",
+    "a swapped work"
+  ]
+}

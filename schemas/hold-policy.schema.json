@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:hold-policy:0.1",
+  "title": "Hold policy",
+  "description": "Per principal unless marked platform. A Server MUST NOT enforce a limit it has not published here or in the capability document; C-CAPABILITY asserts the converse. An undisclosed limit is indistinguishable from a bug to a caller with no eyes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policy_max_floor_ms", "handoff_floor_ms", "clock_guard_ms", "max_clock_skew_tolerance_ms",
+    "max_seats_per_hold", "max_live_holds_per_showtime", "max_holds_per_site_per_hour",
+    "max_live_holds_per_cluster", "max_live_seats_per_showtime", "max_held_seat_fraction_bp",
+    "max_held_fraction_per_showtime", "max_live_holds_per_site", "revocation_voids_holds",
+    "abandonment_floor_penalty_bp"
+  ],
+  "properties": {
+    "policy_max_floor_ms": { "type": "integer", "minimum": 1000, "maximum": 300000 },
+    "handoff_floor_ms": { "type": "integer", "minimum": 1000 },
+    "clock_guard_ms": { "type": "integer", "minimum": 0, "default": 2000 },
+    "max_clock_skew_tolerance_ms": { "type": "integer", "minimum": 0, "default": 1000 },
+    "max_seats_per_hold": { "type": "integer", "minimum": 1, "maximum": 12, "default": 6 },
+    "max_live_holds_per_showtime": { "type": "integer", "minimum": 1, "default": 2 },
+    "max_holds_per_site_per_hour": { "type": "integer", "minimum": 1, "default": 6 },
+    "max_live_holds_per_cluster": { "type": "integer", "minimum": 1, "default": 1 },
+    "max_live_seats_per_showtime": { "type": "integer", "minimum": 1, "default": 6 },
+    "max_held_seat_fraction_bp": { "type": "integer", "minimum": 1, "maximum": 10000, "default": 500 },
+    "max_held_fraction_per_showtime": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.02 },
+    "max_live_holds_per_site": { "type": "integer", "minimum": 1 },
+    "revocation_voids_holds": { "type": "boolean", "default": true },
+    "abandonment_floor_penalty_bp": { "type": "integer", "minimum": 0, "maximum": 10000, "default": 0 }
+  }
+}

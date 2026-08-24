@@ -1,0 +1,54 @@
+{
+  "changeover": "0.1",
+  "occasion_id": "occ_multiplex_20260830T1400_s4",
+  "revision": 2,
+  "etag": "1:9MokuOSTWVJ-_t1IMbm7cfT61VjN3kfb3yDZtK6UJJ4",
+  "venue": {
+    "id": "ven_courtenay",
+    "name": { "content_type": "text/plain", "value": "Courtenay Multiplex" },
+    "origin": "https://embassy.example",
+    "timezone": "Pacific/Auckland",
+    "locality": "Wellington"
+  },
+  "auditorium": { "id": "aud_courtenay_4", "seating": "allocated", "name": "Cinema 4", "capacity": 168 },
+  "work": { "title": { "content_type": "text/plain", "value": "The Conversation" }, "year": 1974, "runtime_minutes": 113 },
+  "instant": {
+    "starts_at": "2026-08-30T14:00:00+12:00",
+    "local_wall": "2026-08-30T14:00",
+    "local_wall_offset": "+12:00",
+    "sales_cutoff_at": "2026-08-30T14:15:00+12:00"
+  },
+  "manner": {
+    "presentation_classes": ["pres:dcp-2k-flat", "pres:sound-5-1", "pres:reserved-seating", "pres:open-caption"],
+    "register_version": "2026.1",
+    "accessibility": {
+      "open_captions": "yes", "captioning_devices": "yes", "audio_description": "no",
+      "assistive_listening": "yes", "wheelchair_spaces": "yes", "relaxed_environment": "no", "sensory_adjusted": "no"
+    }
+  },
+  "availability": {
+    "mode": "seat_map",
+    "observed_at": "2026-08-29T09:19:57.902+12:00",
+    "staleness_basis": "measured",
+    "sold_out": false,
+    "seats_available": 160,
+    "seat_map_ref": "https://embassy.example/changeover/v0/occasions/occ_multiplex_20260830T1400_s4/seatmap",
+    "max_staleness_ms": 30000
+  },
+  "price_disclosure": "published",
+  "offers": [
+    { "offer_id": "off_courtenay_matinee", "band": { "content_type": "text/plain", "value": "Matinee" },
+      "currency": "NZD", "amount_minor": 1200,
+      "price_basis": { "includes_mandatory_fees": true, "includes_tax": true } }
+  ],
+  "substitution": {
+    "cluster": "the-conversation-wlg-2026-w35",
+    "policy": "strict",
+    "accepts_substitute": [],
+    "not_substitutable_for": [],
+    "derived_from": { "policy_id": "pol_embassy_2026", "rule_ids": ["r-35mm-carrier"], "rule_version": "2026.1" }
+  },
+  "hold_policy": { "policy_max_floor_ms": 180000, "handoff_floor_ms": 300000, "clock_guard_ms": 2000, "max_clock_skew_tolerance_ms": 1000, "max_seats_per_hold": 6, "max_live_holds_per_showtime": 2, "max_holds_per_site_per_hour": 6, "max_live_holds_per_cluster": 1, "max_live_seats_per_showtime": 6, "max_held_seat_fraction_bp": 500, "max_held_fraction_per_showtime": 0.02, "max_live_holds_per_site": 40, "revocation_voids_holds": true, "abandonment_floor_penalty_bp": 0 },
+  "book_url": "https://tickets.embassy.example/session/20260830-1400-c4",
+  "server_time": "2026-08-29T09:20:00.412+12:00"
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:substitution-policy:0.1",
+  "title": "Substitution policy (authoring form)",
+  "description": "Rules over CLASSES, never pairs over instances. A circuit rebuilds thousands of screenings every change-day and every occasion_id is new; a graph re-authored weekly at O(n^2) is a graph nobody authors twice.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["policy_id", "rule_version", "rules"],
+  "properties": {
+    "policy_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+    "rule_version": { "type": "string", "maxLength": 32 },
+    "rules": {
+      "type": "array", "maxItems": 256,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["rule_id", "subject", "relation", "object", "policy", "reason_code", "authored_by", "authored_at", "effective_from"],
+        "properties": {
+          "rule_id": { "type": "string", "maxLength": 128 },
+          "scope": {
+            "type": "object", "additionalProperties": false,
+            "properties": {
+              "venue_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+              "work_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+              "cluster_pattern": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "subject": { "type": "string", "maxLength": 64 },
+          "relation": { "enum": ["accepts_substitute", "not_substitutable_for"] },
+          "object": { "type": "string", "maxLength": 64 },
+          "policy": { "enum": ["strict", "advisory"] },
+          "reason_code": { "enum": ["format", "carrier", "occasion", "accessibility", "language", "room", "time"] },
+          "detail": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+          "authored_by": { "enum": ["venue", "programmer"] },
+          "authored_at": { "type": "string", "format": "date-time" },
+          "effective_from": { "type": "string", "format": "date" },
+          "effective_to": { "type": "string", "format": "date" }
+        }
+      }
+    }
+  }
+}

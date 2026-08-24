@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:occasion:0.1",
+  "title": "Occasion",
+  "description": "This work, in this room, at this instant, in this manner. Carries no quantity: a screening is not an item.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "changeover", "occasion_id", "revision", "etag", "venue", "auditorium",
+    "work", "instant", "manner", "availability", "price_disclosure", "offers",
+    "substitution", "server_time"
+  ],
+  "properties": {
+    "changeover": { "const": "0.1" },
+    "occasion_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+    "revision": {
+      "type": "integer", "minimum": 1,
+      "description": "MUST increase strictly monotonically on every publish. An Agent MUST NOT infer an assertion change from it — only etag carries that."
+    },
+    "etag": { "$ref": "urn:changeover:schema:common:0.1#/$defs/etag" },
+    "showtime_ref": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source", "showtime_id"],
+      "properties": {
+        "source": { "type": "string", "maxLength": 32 },
+        "showtime_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" }
+      }
+    },
+    "venue": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "origin", "timezone"],
+      "properties": {
+        "id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+        "name": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+        "origin": { "$ref": "urn:changeover:schema:common:0.1#/$defs/bareOrigin" },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "locality": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "auditorium": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "seating"],
+      "properties": {
+        "id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+        "seating": { "enum": ["allocated", "unallocated", "unknown"] },
+        "name": { "type": "string", "maxLength": 128 },
+        "capacity": { "type": "integer", "minimum": 0 },
+        "why_this_room": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" }
+      }
+    },
+    "work": {
+      "type": "object", "additionalProperties": false,
+      "required": ["title"],
+      "properties": {
+        "title": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+        "eidr": { "type": "string", "maxLength": 64 },
+        "isan": { "type": "string", "maxLength": 64 },
+        "year": { "type": "integer", "minimum": 1878, "maximum": 2200 },
+        "runtime_minutes": { "type": "integer", "minimum": 1 },
+        "synopsis": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+        "release_date_local": { "type": "string", "format": "date" }
+      }
+    },
+    "instant": {
+      "type": "object", "additionalProperties": false,
+      "required": ["starts_at", "local_wall", "local_wall_offset"],
+      "properties": {
+        "starts_at": { "type": "string", "format": "date-time" },
+        "local_wall": { "$ref": "urn:changeover:schema:common:0.1#/$defs/localWall" },
+        "local_wall_offset": { "$ref": "urn:changeover:schema:common:0.1#/$defs/localWallOffset" },
+        "doors_at": { "type": "string", "format": "date-time" },
+        "feature_at": { "type": "string", "format": "date-time" },
+        "ends_at": { "type": "string", "format": "date-time" },
+        "sales_cutoff_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "manner": {
+      "type": "object", "additionalProperties": false,
+      "required": ["presentation_classes", "register_version", "accessibility"],
+      "properties": {
+        "presentation_classes": {
+          "type": "array", "minItems": 1, "maxItems": 16, "uniqueItems": true,
+          "items": { "$ref": "urn:changeover:schema:common:0.1#/$defs/presentationClass" }
+        },
+        "occasion_classes": {
+          "type": "array", "maxItems": 8, "uniqueItems": true,
+          "items": { "$ref": "urn:changeover:schema:common:0.1#/$defs/occasionClass" }
+        },
+        "register_version": { "$ref": "urn:changeover:schema:common:0.1#/$defs/registerVersion" },
+        "accessibility": {
+          "type": "object", "additionalProperties": false,
+          "required": [
+            "open_captions", "captioning_devices", "audio_description",
+            "assistive_listening", "wheelchair_spaces", "relaxed_environment", "sensory_adjusted"
+          ],
+          "properties": {
+            "open_captions": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" },
+            "captioning_devices": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" },
+            "audio_description": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" },
+            "assistive_listening": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" },
+            "wheelchair_spaces": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" },
+            "relaxed_environment": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" },
+            "sensory_adjusted": { "$ref": "urn:changeover:schema:common:0.1#/$defs/ternary" }
+          }
+        },
+        "note": {
+          "type": "object", "additionalProperties": false,
+          "required": ["body", "authored_by", "authored_at"],
+          "properties": {
+            "body": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+            "authored_by": { "enum": ["venue", "programmer"] },
+            "authored_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      }
+    },
+    "availability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mode", "observed_at", "staleness_basis"],
+      "properties": {
+        "mode": { "enum": ["seat_map", "count", "unknown"] },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "staleness_basis": { "enum": ["measured", "configured", "unknown"] },
+        "sold_out": { "type": "boolean" },
+        "seats_available": { "type": "integer", "minimum": 0 },
+        "seat_map_ref": { "type": "string", "format": "uri" },
+        "max_staleness_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 }
+      }
+    },
+    "price_disclosure": { "enum": ["published", "at_checkout", "member_dependent"] },
+    "offers": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["offer_id", "band", "currency", "amount_minor", "price_basis"],
+        "properties": {
+          "offer_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+          "band": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "amount_minor": { "type": "integer", "minimum": 0 },
+          "price_basis": {
+            "type": "object", "additionalProperties": false,
+            "required": ["includes_mandatory_fees", "includes_tax"],
+            "properties": {
+              "includes_mandatory_fees": { "type": "boolean" },
+              "includes_tax": { "type": "boolean" },
+              "tax_note": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" }
+            }
+          },
+          "total_at_checkout_minor": { "type": "integer", "minimum": 0 },
+          "eligibility_note": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" }
+        }
+      },
+      "description": "Sorted by offer_id under C collation. Arrays project in document order, so emission order is normative."
+    },
+    "substitution": { "$ref": "urn:changeover:schema:substitution:0.1" },
+    "hold_policy": { "$ref": "urn:changeover:schema:hold-policy:0.1" },
+    "book_url": { "type": "string", "format": "uri" },
+    "server_time": { "type": "string", "format": "date-time" }
+  }
+}

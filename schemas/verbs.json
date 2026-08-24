@@ -1,0 +1,8 @@
+{
+  "changeover": "0.1",
+  "description": "The complete verb surface. Five names. C-ABSENCE.1 asserts the count and that no name matches /settle|pay|capture|refund|charge/. The absence being asserted is SETTLEMENT, not the word: price_disclosure, price_basis and price_band are legitimate read-side members, and a check that fails on them is a check somebody disables.",
+  "verbs": ["resolve_occasions", "hold_seats", "get_hold", "release_hold", "hand_off"],
+  "absent": {
+    "settlement": "There is no settlement verb — not deferred, not permission-checked. The surface has no such operation, so no instruction can reach one. ADR-001."
+  }
+}

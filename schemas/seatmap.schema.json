@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:seatmap:0.1",
+  "title": "Seat map",
+  "description": "Served at availability.seat_map_ref. Its ids are NORMATIVELY the ids hold_seats accepts. MUST be same-origin under O1 and MUST require the same credential as resolve_occasions: an unauthenticated seat map is an unbounded enumeration of the house layout.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["observed_at", "max_staleness_ms", "staleness_basis", "seats"],
+  "properties": {
+    "observed_at": { "type": "string", "format": "date-time" },
+    "max_staleness_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+    "staleness_basis": { "enum": ["measured", "configured", "unknown"] },
+    "seats": {
+      "type": "array", "maxItems": 4096,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["seat_id", "status"],
+        "properties": {
+          "seat_id": { "type": "string", "maxLength": 64 },
+          "section": { "type": "string", "maxLength": 64 },
+          "row": { "type": "string", "maxLength": 16 },
+          "number": { "type": "string", "maxLength": 16 },
+          "status": { "enum": ["available", "held", "sold", "blocked", "companion", "wheelchair"] },
+          "offer_ids": { "type": "array", "maxItems": 64, "items": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" } },
+          "adjacency_group": { "type": "string", "maxLength": 64 }
+        }
+      }
+    }
+  }
+}

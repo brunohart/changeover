@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:substitution:0.1",
+  "title": "Substitution (wire form)",
+  "description": "The per-Occasion edge set, DERIVED by the Server from a substitution policy at publish time. The Server MUST emit the transitive closure. The absence of an edge is the absence of permission, never its presence.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cluster", "policy", "accepts_substitute", "not_substitutable_for", "derived_from"],
+  "properties": {
+    "cluster": {
+      "type": "string", "maxLength": 128,
+      "description": "E3: scoped (venue.origin, cluster). Two Publishers using one string have made no claim about each other."
+    },
+    "policy": { "enum": ["strict", "advisory"] },
+    "accepts_substitute": {
+      "type": "array", "maxItems": 64,
+      "items": { "$ref": "#/$defs/positiveEdge" },
+      "description": "s ⪯ s′ — s′ is an acceptable substitute for s."
+    },
+    "not_substitutable_for": {
+      "type": "array", "maxItems": 64,
+      "items": { "$ref": "#/$defs/negativeEdge" }
+    },
+    "derived_from": {
+      "type": "object", "additionalProperties": false,
+      "required": ["policy_id", "rule_ids", "rule_version"],
+      "properties": {
+        "policy_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+        "rule_ids": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } },
+        "rule_version": { "type": "string", "maxLength": 32 }
+      }
+    }
+  },
+  "$defs": {
+    "positiveEdge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["occasion_id", "axis"],
+      "properties": {
+        "occasion_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+        "axis": { "$ref": "urn:changeover:schema:common:0.1#/$defs/axis" }
+      }
+    },
+    "negativeEdge": {
+      "type": "object", "additionalProperties": false,
+      "required": ["occasion_id", "axis", "reason_code"],
+      "properties": {
+        "occasion_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+        "axis": { "$ref": "urn:changeover:schema:common:0.1#/$defs/axis" },
+        "reason_code": { "enum": ["format", "carrier", "occasion", "accessibility", "language", "room", "time"] },
+        "detail": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" }
+      }
+    }
+  }
+}

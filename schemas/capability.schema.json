@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:capability:0.1",
+  "title": "Capability document",
+  "description": "GET /.well-known/changeover — the file the protocol bootstraps from.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "changeover", "supported_versions", "profile", "venue", "authorised_origins",
+    "hold_policy", "register_version", "claim_binding", "gate_stage", "handoff_gate_budget_ms",
+    "hold_basis", "floor_basis", "floor_evidence", "usage_policy", "max_window_ms",
+    "max_page_size", "read_rate_limit_per_hour", "log_retention_days", "generated_at",
+    "max_document_age_ms"
+  ],
+  "properties": {
+    "changeover": { "const": "0.1" },
+    "supported_versions": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "type": "string", "maxLength": 16 } },
+    "profile": { "enum": ["0", "1", "1S"] },
+    "venue": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "name", "origin", "timezone"],
+      "properties": {
+        "id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+        "name": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+        "origin": { "$ref": "urn:changeover:schema:common:0.1#/$defs/bareOrigin" },
+        "timezone": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "locality": { "type": "string", "maxLength": 128 }
+      }
+    },
+    "authorised_origins": {
+      "type": "array", "minItems": 1, "maxItems": 16,
+      "items": { "$ref": "urn:changeover:schema:common:0.1#/$defs/bareOrigin" }
+    },
+    "hold_policy": { "$ref": "urn:changeover:schema:hold-policy:0.1" },
+    "register_version": { "$ref": "urn:changeover:schema:common:0.1#/$defs/registerVersion" },
+    "claim_binding": { "enum": ["session_resume", "deep_link", "manual"] },
+    "gate_stage": { "enum": ["hold", "handoff", "none"] },
+    "handoff_gate_budget_ms": { "type": "integer", "minimum": 0, "default": 120000 },
+    "hold_basis": { "enum": ["system_of_record", "shadow"] },
+    "floor_basis": { "enum": ["owned_store", "measured_warranty"] },
+    "floor_evidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["observations", "window_start", "window_end", "min_observed_retention_ms", "safety_margin_ms", "violations"],
+      "properties": {
+        "observations": { "type": "integer", "minimum": 0 },
+        "window_start": { "type": "string", "format": "date-time" },
+        "window_end": { "type": "string", "format": "date-time" },
+        "min_observed_retention_ms": { "type": "integer", "minimum": 0 },
+        "safety_margin_ms": { "type": "integer", "minimum": 0 },
+        "violations": { "type": "integer", "minimum": 0 }
+      },
+      "description": "The floor is a warranty, not an assertion. floor_ms MUST NOT exceed min_observed_retention_ms - safety_margin_ms. A Server MUST NOT grant a floor it has not measured."
+    },
+    "usage_policy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["redistribution", "cache_max_age_ms", "contact"],
+      "properties": {
+        "redistribution": { "enum": ["forbidden", "attributed", "allowed"] },
+        "cache_max_age_ms": { "type": "integer", "minimum": 0 },
+        "attribution_text": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+        "terms_url": { "type": "string", "format": "uri" },
+        "contact": { "type": "string", "maxLength": 256 }
+      }
+    },
+    "max_window_ms": { "type": "integer", "minimum": 0, "default": 1209600000 },
+    "max_page_size": { "type": "integer", "minimum": 1, "default": 200 },
+    "read_rate_limit_per_hour": { "type": "integer", "minimum": 0 },
+    "log_retention_days": { "type": "integer", "minimum": 0, "default": 90 },
+    "occasions_url": { "type": "string", "format": "uri" },
+    "occasions": { "type": "array", "maxItems": 4096, "items": { "$ref": "urn:changeover:schema:occasion:0.1" } },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "max_document_age_ms": { "type": "integer", "minimum": 0 }
+  },
+  "anyOf": [
+    { "required": ["occasions_url"] },
+    { "required": ["occasions"] }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:common:0.1",
+  "title": "CHANGEOVER common definitions",
+  "description": "Shared $defs. This file declares no document members and is therefore outside the member manifest (Lock 2 covers the eight document schemas).",
+  "$defs": {
+    "opaqueId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Z3: an Agent MUST NOT parse, order, or derive meaning from this value, and a Server MUST NOT make one enumerable."
+    },
+    "prose": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_type", "value"],
+      "properties": {
+        "content_type": { "enum": ["text/plain"] },
+        "value": { "type": "string", "maxLength": 2000 }
+      },
+      "description": "PR: non-load-bearing human text. Outside PROJECTION_0_1. V4: rendered as plain text regardless of content_type."
+    },
+    "bareOrigin": {
+      "type": "string",
+      "pattern": "^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$",
+      "description": "O1: scheme and authority only — no userinfo, path, query or fragment."
+    },
+    "etag": {
+      "type": "string",
+      "pattern": "^1:[A-Za-z0-9_-]{43}$",
+      "description": "1: || base64url_unpadded(SHA-256(JCS(project(occasion, PROJECTION_0_1)))). Truncation is NOT permitted."
+    },
+    "localWall": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$"
+    },
+    "localWallOffset": {
+      "type": "string",
+      "pattern": "^[+-]\\d{2}:\\d{2}$"
+    },
+    "presentationClass": {
+      "type": "string",
+      "pattern": "^(pres:[a-z0-9-]+|x-[a-z0-9-]+)$"
+    },
+    "occasionClass": {
+      "type": "string",
+      "pattern": "^(occ:[a-z0-9-]+|x-[a-z0-9-]+)$"
+    },
+    "registerVersion": {
+      "type": "string",
+      "pattern": "^\\d{4}\\.\\d+$"
+    },
+    "ternary": { "enum": ["yes", "no", "unknown"] },
+    "axis": {
+      "enum": ["instant", "auditorium", "presentation_class", "occasion_class", "price_band", "seat", "accessibility"]
+    }
+  }
+}

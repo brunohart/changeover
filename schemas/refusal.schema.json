@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:refusal:0.1",
+  "title": "Refusal",
+  "description": "An Agent MUST derive its next action from code and remediation ONLY. reason is a prose envelope, explicitly non-load-bearing, never an instruction. A refusal MUST NOT be mixed with rows; first failure wins.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["refused", "code", "remediation", "reason", "server_time"],
+  "properties": {
+    "refused": { "const": true },
+    "code": {
+      "enum": [
+        "schema_validation", "hint_rejected", "unknown_seat", "window_too_wide",
+        "not_authorised", "principal_scope_missing", "occasion_not_found", "hold_not_found",
+        "seat_contended", "seat_unavailable", "seat_rule_violated", "availability_unknown",
+        "availability_stale", "past_sales_cutoff", "hold_not_live", "hold_expired",
+        "hold_revoked", "handoff_consumed", "stale_read", "idempotency_in_flight",
+        "claim_consumed", "claim_expired", "occasion_moved", "substitution_refused",
+        "idempotency_key_reused", "hold_budget_exhausted", "seat_budget_exhausted",
+        "cluster_fanout", "rate_limited", "profile_not_supported", "floor_unavailable",
+        "upstream_unavailable"
+      ]
+    },
+    "remediation": {
+      "enum": ["re_resolve", "re_read", "release_conflicting_hold", "retry_same_key", "retry_after", "hand_off_existing", "use_book_url", "contact_venue", "none"]
+    },
+    "reason": { "$ref": "urn:changeover:schema:common:0.1#/$defs/prose" },
+    "retry_after_ms": { "type": "integer", "minimum": 0 },
+    "detail": true,
+    "server_time": { "type": "string", "format": "date-time" }
+  },
+  "allOf": [
+    { "$comment": "detail is a closed oneOf keyed on code; every branch additionalProperties:false. Codes with no detail declare detail:false.",
+      "if": { "properties": { "code": { "enum": ["seat_contended", "unknown_seat", "seat_unavailable"] } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["seat_ids"],
+        "properties": { "seat_ids": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 64 } } } } } } },
+    { "if": { "properties": { "code": { "const": "seat_rule_violated" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["rule"],
+        "properties": {
+          "rule": { "type": "string", "maxLength": 64 },
+          "suggested_seats": { "type": "array", "maxItems": 12, "items": { "type": "string", "maxLength": 64 } } } } } } },
+    { "if": { "properties": { "code": { "const": "occasion_moved" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["changed_paths"],
+        "properties": { "changed_paths": { "type": "array", "maxItems": 64, "items": { "type": "string", "maxLength": 128 } } } } } } },
+    { "if": { "properties": { "code": { "const": "substitution_refused" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["from_occasion_id", "crossed_axis"],
+        "properties": {
+          "from_occasion_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+          "crossed_axis": { "$ref": "urn:changeover:schema:common:0.1#/$defs/axis" } } } } } },
+    { "if": { "properties": { "code": { "const": "cluster_fanout" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["conflicting_hold_id", "cluster", "limit"],
+        "properties": {
+          "conflicting_hold_id": { "type": "string", "pattern": "^hold_[0-9A-HJKMNP-TV-Z]{32}$" },
+          "cluster": { "type": "string", "maxLength": 128 },
+          "limit": { "type": "integer", "minimum": 0 } } } } } },
+    { "if": { "properties": { "code": { "const": "hold_budget_exhausted" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["limit", "window_ms"],
+        "properties": { "limit": { "type": "integer", "minimum": 0 }, "window_ms": { "type": "integer", "minimum": 0 } } } } } },
+    { "if": { "properties": { "code": { "const": "seat_budget_exhausted" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["limit"],
+        "properties": { "limit": { "type": "integer", "minimum": 0 } } } } } },
+    { "if": { "properties": { "code": { "const": "hold_expired" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["expired_at", "occasion_id"],
+        "properties": {
+          "expired_at": { "type": "string", "format": "date-time" },
+          "occasion_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" } } } } } },
+    { "if": { "properties": { "code": { "const": "hold_revoked" } }, "required": ["code"] },
+      "then": { "properties": { "detail": {
+        "type": "object", "additionalProperties": false, "required": ["revocation_reason"],
+        "properties": {
+          "revocation_reason": { "enum": ["session_cancelled", "session_moved", "seat_withdrawn", "safety", "venue_operations", "credential_revoked"] },
+          "book_url": { "type": "string", "format": "uri" } } } } } },
+    { "if": { "properties": { "code": { "enum": [
+        "schema_validation", "hint_rejected", "window_too_wide", "not_authorised",
+        "principal_scope_missing", "occasion_not_found", "hold_not_found", "availability_unknown",
+        "availability_stale", "past_sales_cutoff", "hold_not_live", "handoff_consumed",
+        "stale_read", "idempotency_in_flight", "claim_consumed", "claim_expired",
+        "idempotency_key_reused", "rate_limited", "profile_not_supported",
+        "floor_unavailable", "upstream_unavailable" ] } }, "required": ["code"] },
+      "then": { "properties": { "detail": false } } }
+  ]
+}

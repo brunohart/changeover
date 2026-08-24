@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:hold:0.1",
+  "title": "Hold",
+  "description": "A server-minted, single-consumption, non-extendable seat lease with typed deadlines. There is no field for a name, email, phone number, loyalty number, payment instrument, or a token standing for any of them — in this object or in any request that produces it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "changeover", "hold_id", "state", "occasion_id", "occasion_etag", "sought_occasion_id",
+    "seats", "granted_at", "floor_ms", "floor_deadline", "expires_at", "extendable",
+    "agent_id", "server_time"
+  ],
+  "properties": {
+    "changeover": { "const": "0.1" },
+    "hold_id": {
+      "type": "string",
+      "pattern": "^hold_[0-9A-HJKMNP-TV-Z]{32}$",
+      "description": "Z2: >=160 bits from a CSPRNG. ULID and UUIDv7 are NOT acceptable generators — both leak and order by time."
+    },
+    "state": { "enum": ["live", "handed_off", "claimed", "released", "expired", "revoked"] },
+    "occasion_id": { "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId" },
+    "occasion_etag": { "$ref": "urn:changeover:schema:common:0.1#/$defs/etag" },
+    "sought_occasion_id": {
+      "$ref": "urn:changeover:schema:common:0.1#/$defs/opaqueId",
+      "description": "S4: Agent-asserted and unverifiable. Its value is that a misreport is a false statement recorded against a revocable credential — a liability, not an interlock."
+    },
+    "seats": {
+      "type": "array", "minItems": 1, "maxItems": 12, "uniqueItems": true,
+      "items": { "type": "string", "maxLength": 64 }
+    },
+    "granted_at": { "type": "string", "format": "date-time" },
+    "floor_ms": {
+      "type": "integer", "minimum": 1000,
+      "description": "T: the immovable cue mark. Shortenable at grant, never lengthened by a read, never moved by a concurrent session. The only value an Agent may plan against."
+    },
+    "floor_deadline": { "type": "string", "format": "date-time" },
+    "expires_at": {
+      "type": "string", "format": "date-time",
+      "description": "T7: a movable merchant intention, upward only, reported on every read. expires_at >= floor_deadline."
+    },
+    "extendable": { "const": false },
+    "agent_id": {
+      "type": "string", "pattern": "^agt_[A-Za-z0-9_-]{1,40}$",
+      "description": "Server-assigned at credential issue. Never echoed from the caller."
+    },
+    "cluster": { "type": "string", "maxLength": 128 },
+    "read_token": { "type": "string", "pattern": "^[A-Za-z0-9_-]{22,}$" },
+    "revocation_reason": {
+      "enum": ["session_cancelled", "session_moved", "seat_withdrawn", "safety", "venue_operations", "credential_revoked"]
+    },
+    "handoff": {
+      "type": "object", "additionalProperties": false,
+      "required": ["handed_off_at", "handoff_floor_ms", "claim_url", "claim_expires_at"],
+      "properties": {
+        "handed_off_at": { "type": "string", "format": "date-time" },
+        "handoff_floor_ms": { "type": "integer", "minimum": 1000 },
+        "claim_url": { "type": "string", "format": "uri" },
+        "claim_expires_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "server_time": { "type": "string", "format": "date-time" }
+  }
+}

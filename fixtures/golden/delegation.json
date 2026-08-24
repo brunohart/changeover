@@ -1,0 +1,10 @@
+{
+  "changeover": "0.1",
+  "apex": "https://embassy.example",
+  "authorised_origins": [
+    "https://embassy.example",
+    "https://tickets.embassy.example"
+  ],
+  "generated_at": "2026-08-01T09:00:00+12:00",
+  "note": "O1: served from the apex only. tickets.embassy.example is not venue.origin and is legal because this record names it. Delegation is the ONLY origin-authority mechanism in v0.1 — signing was removed rather than half-specified (SPEC.md §3.3)."
+}

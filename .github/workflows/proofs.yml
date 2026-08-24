@@ -1,0 +1,19 @@
+name: proofs
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  proofs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # prove_spec_first.sh reads the ROOT commit
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm install --no-audit --no-fund
+      - name: Run every proof
+        run: bash scripts/run_proofs.sh

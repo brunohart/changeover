@@ -1,0 +1,100 @@
+{
+  "changeover": "0.1",
+  "occasion_id": "occ_embassy_20260829T1900_s1",
+  "revision": 4,
+  "etag": "1:XB7PZvK6GJP0BY4IPzKdmuCc-R5RaivznwPz_KDY-04",
+  "venue": {
+    "id": "ven_embassy",
+    "name": { "content_type": "text/plain", "value": "Embassy Theatre" },
+    "origin": "https://embassy.example",
+    "timezone": "Pacific/Auckland",
+    "locality": "Wellington"
+  },
+  "auditorium": {
+    "id": "aud_embassy_grand",
+    "seating": "allocated",
+    "name": "The Grand",
+    "capacity": 754,
+    "why_this_room": { "content_type": "text/plain", "value": "The only four-perf projector still threaded in the city, and the room it was built for." }
+  },
+  "work": {
+    "title": { "content_type": "text/plain", "value": "The Conversation" },
+    "year": 1974,
+    "runtime_minutes": 113
+  },
+  "instant": {
+    "starts_at": "2026-08-29T19:00:00+12:00",
+    "local_wall": "2026-08-29T19:00",
+    "local_wall_offset": "+12:00",
+    "doors_at": "2026-08-29T18:40:00+12:00",
+    "sales_cutoff_at": "2026-08-29T19:15:00+12:00"
+  },
+  "manner": {
+    "presentation_classes": ["pres:35mm-4perf", "pres:sound-optical", "pres:reserved-seating"],
+    "occasion_classes": ["occ:archival-print", "occ:final-run"],
+    "register_version": "2026.1",
+    "accessibility": {
+      "open_captions": "no",
+      "captioning_devices": "no",
+      "audio_description": "no",
+      "assistive_listening": "yes",
+      "wheelchair_spaces": "yes",
+      "relaxed_environment": "no",
+      "sensory_adjusted": "no"
+    },
+    "note": {
+      "body": { "content_type": "text/plain", "value": "Struck in 1974 and held in the vaults since the last revival. This is the print, not a scan of it." },
+      "authored_by": "programmer",
+      "authored_at": "2026-08-01T09:00:00+12:00"
+    }
+  },
+  "availability": {
+    "mode": "seat_map",
+    "observed_at": "2026-08-29T09:19:58.100+12:00",
+    "staleness_basis": "measured",
+    "sold_out": false,
+    "seats_available": 212,
+    "seat_map_ref": "https://embassy.example/changeover/v0/occasions/occ_embassy_20260829T1900_s1/seatmap",
+    "max_staleness_ms": 30000
+  },
+  "price_disclosure": "published",
+  "offers": [
+    {
+      "offer_id": "off_embassy_full",
+      "band": { "content_type": "text/plain", "value": "General admission" },
+      "currency": "NZD",
+      "amount_minor": 2600,
+      "price_basis": { "includes_mandatory_fees": true, "includes_tax": true }
+    }
+  ],
+  "substitution": {
+    "cluster": "the-conversation-wlg-2026-w35",
+    "policy": "strict",
+    "accepts_substitute": [],
+    "not_substitutable_for": [
+      { "occasion_id": "occ_multiplex_20260829T2100_s4", "axis": "presentation_class", "reason_code": "carrier",
+        "detail": { "content_type": "text/plain", "value": "A digital projection is not a substitute for the print." } },
+      { "occasion_id": "occ_multiplex_20260830T1400_s4", "axis": "presentation_class", "reason_code": "carrier",
+        "detail": { "content_type": "text/plain", "value": "A digital projection is not a substitute for the print." } }
+    ],
+    "derived_from": { "policy_id": "pol_embassy_2026", "rule_ids": ["r-35mm-carrier"], "rule_version": "2026.1" }
+  },
+  "hold_policy": {
+    "policy_max_floor_ms": 180000,
+    "handoff_floor_ms": 300000,
+    "clock_guard_ms": 2000,
+    "max_clock_skew_tolerance_ms": 1000,
+    "max_seats_per_hold": 6,
+    "max_live_holds_per_showtime": 2,
+    "max_holds_per_site_per_hour": 6,
+    "max_live_holds_per_cluster": 1,
+    "max_live_seats_per_showtime": 6,
+    "max_held_seat_fraction_bp": 500,
+    "max_held_fraction_per_showtime": 0.02,
+    "max_live_holds_per_site": 40,
+    "revocation_voids_holds": true,
+    "abandonment_floor_penalty_bp": 0
+  },
+  "book_url": "https://tickets.embassy.example/session/20260829-1900-grand",
+  "server_time": "2026-08-29T09:20:00.412+12:00"
+}
