@@ -47,6 +47,7 @@ import { CONFORMANCE_CLASSES } from "@changeover/adapter-reference/classes.ts";
 import { CannotProve, openDb } from "@changeover/store/db.ts";
 import type { Db } from "@changeover/store/db.ts";
 import { serverTime } from "@changeover/core/clock.ts";
+import { HOLD_POLICY_PUBLISHED } from "@changeover/core/budgets.ts";
 import type { Rfc3339 } from "@changeover/schema/scalars.ts";
 
 import type { Binding, CountMeasurement, LatencyMeasurement, ReportClass, ReportClause } from "./report.ts";
@@ -61,7 +62,7 @@ import {
 
 import { classOutcome } from "./classes/_contract.ts";
 import type { ClassOutcome, ConformanceClassModule } from "./classes/_contract.ts";
-import { CREDENTIAL_A, TOKEN, conformanceBench, grantHold } from "./classes/_bench.ts";
+import { CREDENTIAL_A, CREDENTIAL_B, TOKEN, conformanceBench, grantHold } from "./classes/_bench.ts";
 
 /* ── 1 · What the caller asks for ──────────────────────────────────────────── */
 
@@ -337,25 +338,45 @@ export function readPercentiles(notes: readonly string[]): LatencyMeasurement {
 async function observeFloor(
   options: RunOptions,
 ): Promise<{ violations: CountMeasurement; overrides: CountMeasurement; trials: number }> {
-  const cohort = 6;
-  const scope = CREDENTIAL_A.principal_scope;
+  // The cohort is sized at the boundary's OWN published per-principal ceiling
+  // rather than at a number chosen here, across both credentials the bench
+  // carries. A cohort larger than the ceiling is a cohort the boundary is right
+  // to refuse, and an observation over Holds that were never granted is an
+  // observation of nothing — which reads, in the report, as a clean zero.
+  const per_principal = HOLD_POLICY_PUBLISHED.max_live_holds_per_showtime;
+  const who = [
+    { token: TOKEN.a, scope: CREDENTIAL_A.principal_scope },
+    { token: TOKEN.b, scope: CREDENTIAL_B.principal_scope },
+  ];
+  const attempted = per_principal * who.length;
+  const scopes = who.map((w) => w.scope);
   let bench: Awaited<ReturnType<typeof conformanceBench>> | null = null;
   try {
     bench = await conformanceBench();
     await bench.reset();
-    const seats: string[][] = [];
-    for (let i = 0; i < cohort; i++) seats.push([`E:${i + 1}`]);
-    let granted = 0;
-    for (const pair of seats) {
-      const call = await grantHold(bench, TOKEN.a, pair, {}, `observe-${bench.nonce}`);
-      if (call.status === 201) granted++;
+
+    // Distinct hold_ids, not 201s. A replay answers with the Hold it replayed,
+    // and counting responses would count one Hold as many. `key()` seeds the
+    // Idempotency-Key with `${label}-${nonce}-${seats}` and truncates at 32
+    // characters, so a long label pushes the seat ids off the end and the whole
+    // cohort arrives under one key — which is what the first run of this code
+    // did, correctly replaying one Hold six times while reporting six.
+    const ids = new Set<string>();
+    const refused: string[] = [];
+    let seat = 1;
+    for (const principal of who) {
+      for (let i = 0; i < per_principal; i++) {
+        const call = await grantHold(bench, principal.token, [`E:${seat++}`], {}, "obs");
+        const body = call.json as { hold_id?: unknown; code?: unknown } | undefined;
+        if (call.status === 201 && typeof body?.hold_id === "string") ids.add(body.hold_id);
+        else refused.push(typeof body?.code === "string" ? body.code : `http ${call.status}`);
+      }
     }
-    if (granted === 0) {
-      return {
-        violations: notMeasured("floor observation", "the boundary granted none of the observation cohort, so no floor was under observation"),
-        overrides: notMeasured("floor observation", "the boundary granted none of the observation cohort, so no floor was under observation"),
-        trials: cohort,
-      };
+    if (ids.size === 0) {
+      const why =
+        `the boundary granted none of the ${attempted} Holds this observation attempted (${refused.join(", ")}), ` +
+        "so no floor was under observation and a zero here would mean 'nobody held anything'";
+      return { violations: notMeasured("floor observation", why), overrides: notMeasured("floor observation", why), trials: attempted };
     }
 
     await new Promise<void>((resolve) => setTimeout(resolve, options.observe_ms));
@@ -365,16 +386,21 @@ async function observeFloor(
         " count(*) filter (where h.revocation_reason is not null)::text as overrides," +
         " count(*) filter (where h.revocation_reason is null)::text as violations" +
         " from hold h" +
-        " where h.principal_scope = $1" +
+        " where h.principal_scope = any($1::text[])" +
         "   and h.floor_deadline > clock_timestamp()" +
         "   and not exists (select 1 from hold_seat s where s.hold_id = h.hold_id" +
         "                     and s.state in ('live', 'handed_off', 'claimed'))",
-      [scope],
+      [scopes],
     );
     const row = counted.rows[0];
+    // Both numbers, always. A cohort that silently shrank is an observation of
+    // something smaller than the one the note claims, and the shrinkage is
+    // invisible in a count of zero violations.
     const where =
-      `${granted} Holds granted at this Server's own floor, watched for ${options.observe_ms}ms, ` +
-      `counted over principal_scope ${scope} alone so a neighbour's rows are not this run's number`;
+      `granted ${ids.size} distinct Holds of ${attempted} attempted` +
+      `${refused.length === 0 ? "" : ` (${refused.length} refused: ${[...new Set(refused)].join(", ")})`}` +
+      `, at this Server's own floor, watched for ${options.observe_ms}ms, counted over ` +
+      `${scopes.join(" and ")} alone so a neighbour's rows are not this run's number`;
     return {
       violations: observedCount(Number(row?.violations ?? 0), "floor observation", where),
       overrides: observedCount(
@@ -382,7 +408,7 @@ async function observeFloor(
         "floor observation",
         `${where} — nothing here induces an Override; the number is what the operator did during the window`,
       ),
-      trials: cohort,
+      trials: attempted,
     };
   } catch (err) {
     const why = err instanceof Error ? err.message : String(err);
