@@ -45,11 +45,14 @@ export interface DemoResult {
 export interface RunOptions extends BenchOptions {
   /** Called as each reel finishes, so a terminal can print while the run continues. */
   readonly onReel?: (reel: Reel) => void;
+  /** Called once the two Servers are up, with what they measured on the way. */
+  readonly onBoot?: (bench: Bench) => void;
 }
 
 export async function runDemo(options: RunOptions = {}): Promise<DemoResult> {
   const started = Date.now();
   const bench: Bench = await bootBench(options);
+  options.onBoot?.(bench);
   const state: RunState = newRunState(bench);
 
   const reels: Reel[] = [];
