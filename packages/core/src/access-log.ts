@@ -92,13 +92,12 @@ export const DIGIT_RUN_FLOOR = 7;
  * `://` on its own is included because it is a scheme separator whatever
  * precedes it.
  */
-export const URI_SCHEMES: readonly string[] = Object.freeze([
-  "http", "https", "ftp", "ftps", "file", "ws", "wss", "mailto", "tel", "sms",
-  "data", "blob", "javascript", "vbscript", "about", "urn", "view-source",
-  "intent", "market", "chrome", "chrome-extension", "resource",
-]);
-
-const URI_SCHEME_PATTERN = new RegExp(`(^|[^\\p{L}\\p{N}])(${URI_SCHEMES.join("|")})\\s*:`, "iu");
+// The list moved to `@changeover/schema/scalars.ts` on 2026-08-26, so P1's
+// ingest check here and PR2's publish check in `prose()` read one list rather
+// than two that drift apart silently. Imported and re-exported, because this
+// module's callers name it.
+import { URI_SCHEMES, URI_SCHEME_PATTERN } from "@changeover/schema/scalars.ts";
+export { URI_SCHEMES, URI_SCHEME_PATTERN };
 
 /**
  * The reason a hint was refused, as a token. Never the hint.
