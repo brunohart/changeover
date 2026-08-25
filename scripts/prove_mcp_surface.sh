@@ -43,10 +43,17 @@ const bad = (m) => { console.log("FAIL — " + m); fail = 1; };
 const is  = (actual, expected, m) =>
   actual === expected ? ok(m) : bad(m + " (expected " + JSON.stringify(expected) + ", got " + JSON.stringify(actual) + ")");
 
-// C-ABSENCE.1. Kept here and not in packages/mcp/src, so that a future
-// extension of the pattern finds no source line arguing with it. `price` is
-// deliberately omitted: price_disclosure and price_basis are legitimate
-// read-side members and a check that fails on them is a check somebody disables.
+// C-ABSENCE.1, at the two surfaces a model can reach. Kept here and not in
+// packages/mcp/src, so a future extension of the pattern finds no source line
+// arguing with it.
+//
+// The two patterns differ by one alternative, deliberately. SPEC.md 6.2 writes
+// the tools/list rule with `price` in it, and a tool NAME carrying `price` on a
+// boundary that does not settle would be a lie whatever it did. But a MEMBER
+// named price_disclosure or price_basis is legitimate read-side vocabulary, and
+// a check that failed on those is a check somebody disables — which is
+// prove_no_settlement_verb own stated reason for leaving `price` out.
+const SETTLEMENT_TOOL = /settle|pay|capture|refund|charge|price/i;
 const SETTLEMENT = /settle|pay|capture|refund|charge/i;
 const DIALECT = "https://json-schema.org/draft/2020-12/schema";
 
@@ -65,9 +72,9 @@ try {
   is(JSON.stringify(listed), JSON.stringify(verbs),
      "the five listed tools are exactly the five verbs of schemas/verbs.json");
 
-  const settling = tools.filter((tool) => SETTLEMENT.test(tool.name));
+  const settling = tools.filter((tool) => SETTLEMENT_TOOL.test(tool.name));
   is(settling.length, 0,
-     "0 listed tool names match /settle|pay|capture|refund|charge/ (C-ABSENCE.1)");
+     "0 listed tool names match /settle|pay|capture|refund|charge|price/ (C-ABSENCE.1)");
 
   // The other surface a model can fill in. A tool named innocently whose input
   // took a `payment_method` would be a settlement verb with a different sign.
