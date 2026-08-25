@@ -251,9 +251,14 @@ describe("I4 · a replay is not a cached response", () => {
 
     // The deadline passes. No reap runs, no sweeper exists — M1 is a derivation.
     await b.db.query(
-      `update hold set granted_at = clock_timestamp() - interval '10 minutes',
-                       floor_deadline = clock_timestamp() - interval '10 minutes' + (floor_ms * interval '1 millisecond'),
-                       expires_at = clock_timestamp() - interval '10 minutes' + (floor_ms * interval '1 millisecond')
+      // ONE read of the clock, three uses. clock_timestamp() is VOLATILE and is
+      // re-evaluated at every occurrence, so three reads land in three different
+      // microseconds and `hold_floor_derived` — which requires
+      // floor_deadline = granted_at + floor_ms exactly — rejects the row.
+      `update hold set granted_at = t.g - interval '10 minutes',
+                       floor_deadline = t.g - interval '10 minutes' + (floor_ms * interval '1 millisecond'),
+                       expires_at = t.g - interval '10 minutes' + (floor_ms * interval '1 millisecond')
+        from (select clock_timestamp() as g) t
         where hold_id = $1`,
       [hold_id],
     );
