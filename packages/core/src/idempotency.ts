@@ -93,15 +93,31 @@ export interface IdempotencyScope {
  * a server may impose without refusing a conforming Agent.
  */
 export const KEY_MIN_LENGTH = 22;
-export const KEY_MAX_LENGTH = 255;
-export const KEY_PATTERN = /^[A-Za-z0-9._~:@!$'()*+,;=-]{22,255}$/;
+/**
+ * The ceiling is **128 characters**, and it is not this module's choice.
+ *
+ * SPEC.md §6.2 fixes the MCP tool's `idempotency_key` at `maxLength 128` and,
+ * in the same sentence, requires "every constraint identical to the HTTP
+ * binding". Two ceilings is therefore not a cosmetic divergence — it is the
+ * transport-switch failure I3 exists to prevent, wearing the one member D
+ * excludes so digest parity cannot detect it. Measured at the Gate 2
+ * integration with `KEY_MAX_LENGTH = 255`: a 200-character key returned
+ * `201 Created` over HTTP and `schema_validation` over MCP, so an Agent moving
+ * one call between bindings got a refusal where it had asked for a replay.
+ *
+ * 22 remains the floor (below it a key provably cannot carry I1's 128 bits);
+ * 128 is now the ceiling on both sides of the boundary and in core, which is
+ * the only place either binding can inherit it from.
+ */
+export const KEY_MAX_LENGTH = 128;
+export const KEY_PATTERN = /^[A-Za-z0-9._~:@!$'()*+,;=-]{22,128}$/;
 
 /** Refuses `400 schema_validation` where the key cannot carry 128 bits at all. */
 export function assertKeyShape(idempotency_key: unknown): asserts idempotency_key is string {
   if (typeof idempotency_key !== "string" || !KEY_PATTERN.test(idempotency_key)) {
     throw refuse(
       "schema_validation",
-      "Idempotency-Key must be 22 to 255 characters of unreserved token text, long enough to carry 128 bits.",
+      "Idempotency-Key must be 22 to 128 characters of unreserved token text, long enough to carry 128 bits.",
     );
   }
 }
