@@ -1,0 +1,20 @@
+{
+  "name": "changeover",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The changeover command: lint, derive, demo, conform, probe.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@changeover/adapter-reference": "*",
+    "@changeover/conformance": "*",
+    "@changeover/http": "*",
+    "@changeover/semantics": "*"
+  },
+  "bin": {
+    "changeover": "./src/bin.ts"
+  }
+}
