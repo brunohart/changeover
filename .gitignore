@@ -1,3 +1,20 @@
 node_modules/
 .DS_Store
 *.log
+
+# Build and run artefacts. Nothing generated is committed: a conformance report
+# is published deliberately (PUB-004), never swept in by a wildcard.
+dist/
+coverage/
+*.tsbuildinfo
+.pglite/
+tmp/
+out/
+report.json
+reports/*.json
+!reports/.gitkeep
+
+# Local environment. CHANGEOVER_PG_URL lives here, never in a committed file.
+.env
+.env.*
+!.env.example
