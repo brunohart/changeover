@@ -218,20 +218,30 @@ create table hold_seat (
 -- uniqueness predicate the instant the order was written and was immediately
 -- re-holdable with a 201 Created.
 --
--- On the key: SPEC.md:366 writes this index over (showtime_id, seat_id) and
--- ADR-005 writes it over (occasion_id, seat_id). Where showtime_ref is absent —
--- which is every golden fixture — showtime_id IS occasion_id and the two are
--- the same index. Where a publisher supplies showtime_ref and maps several
--- Occasions onto one physical screening they are NOT, and the specification
--- must settle it; this is reported as a spec defect. occasion_id is used here
--- because it is the key ADR-005 names, the key the backlog's gate names, and
--- the key `hold_seats` actually carries on the wire.
-create unique index hold_seat_occupied on hold_seat (occasion_id, seat_id)
+-- On the key, SETTLED 2026-08-25. SPEC.md:366 writes this index over
+-- (showtime_id, seat_id); ADR-005 wrote it over (occasion_id, seat_id). They
+-- are the same index only while showtime_ref is absent, which is true of every
+-- golden fixture and is why the divergence survived review.
+--
+-- SPEC.md is correct and ADR-005 was wrong. The scarce thing is a seat at a
+-- PHYSICAL SCREENING, and `showtime_ref` exists precisely so a publisher can
+-- map several Occasions onto one screening -- a premiere and a standard
+-- listing of the same 7pm show, or two price bands sold as separate Occasions.
+-- Keyed on occasion_id, two such Occasions can each hold seat F11 and both
+-- commit: the index sees two distinct keys, and the house sells one seat twice.
+-- That is oversell arriving through the exact constraint written to make it
+-- unrepresentable.
+--
+-- `locking.ts` already locks on (showtime_id, seat_id) per L1, so the lock was
+-- masking the index in the single-Occasion case and would have stopped masking
+-- it the first time a real publisher used showtime_ref. ADR-005 is corrected to
+-- match the specification rather than the reverse.
+create unique index hold_seat_occupied on hold_seat (showtime_id, seat_id)
   where state in ('live', 'handed_off', 'claimed');
 
 -- The reap of §4.6 reads this: it selects DISTINCT hold_id for doomed seats and
 -- deletes by HOLD, never by seat, because a Hold is never partially expired.
-create index hold_seat_reap_idx on hold_seat (occasion_id, seat_id, held_until)
+create index hold_seat_reap_idx on hold_seat (showtime_id, seat_id, held_until)
   where state in ('live', 'handed_off');
 -- X4 counts a principal's live held seats on one showtime_id.
 create index hold_seat_showtime_idx on hold_seat (showtime_id)
