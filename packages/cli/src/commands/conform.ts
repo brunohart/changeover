@@ -291,6 +291,22 @@ function printOutcome(report: ConformanceReport, quiet: boolean): void {
   console.log(`  harness ${report.harness.commit ?? "not a repository"}${report.harness.dirty === true ? " (working tree DIRTY)" : ""}`);
 }
 
+/**
+ * `--allow-unprovable`, as a function, so the limit of it can be PROVEN.
+ *
+ * It maps a whole-run 2 to 0 for CI, where there is no Postgres and no Docker
+ * daemon. It does not touch 1, and there is no argument it could be given that
+ * would: the flag buys CI a green tick for a gap, never for a failure.
+ *
+ * A function rather than an `if` in the middle of `run()` because the assertion
+ * that matters — *a failure is never hidden* — needs a failing run to observe,
+ * and manufacturing one would mean writing a deliberately broken class module
+ * into another item's directory. Here it is five calls and no fixture.
+ */
+export function applyAllowUnprovable(code: 0 | 1 | 2, allow: boolean): 0 | 1 | 2 {
+  return allow && code === 2 ? 0 : code;
+}
+
 export async function run(argv: string[]): Promise<number> {
   let options: Parsed;
   try {
@@ -375,11 +391,11 @@ export async function run(argv: string[]): Promise<number> {
   }
 
   const code = report.summary.exit_code;
-  if (code === 2 && options.allow_unprovable) {
+  const mapped = applyAllowUnprovable(code, options.allow_unprovable);
+  if (mapped !== code) {
     console.log("");
     console.log("  --allow-unprovable: exiting 0. Nothing above was hidden and no failure was mapped;");
     console.log("  the inventory is printed in full and every entry of it is in the report.");
-    return 0;
   }
-  return code;
+  return mapped;
 }
