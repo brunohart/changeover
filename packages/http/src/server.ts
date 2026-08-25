@@ -937,12 +937,12 @@ export function createServer(options: ServerOptions): Server {
         });
 
       const headers = { ...response.headers };
-      const payload = response.body === undefined ? "" : JSON.stringify(response.body);
+      const encoded = response.body === undefined ? "" : JSON.stringify(response.body);
       if (response.body !== undefined) {
-        headers["Content-Length"] = String(Buffer.byteLength(payload, "utf8"));
+        headers["Content-Length"] = String(Buffer.byteLength(encoded, "utf8"));
       }
       res.writeHead(response.status, headers);
-      res.end(response.body === undefined ? undefined : payload);
+      res.end(response.body === undefined ? undefined : encoded);
     })();
   });
 }

@@ -38,7 +38,7 @@ export type Method = "GET" | "POST" | "DELETE";
 export interface Route {
   readonly name: string;
   readonly method: Method;
-  /** Path template. `{name}` is one path segment, captured. */
+  /** Path template. `{name}` is one path segment, bound as a parameter. */
   readonly pattern: string;
   readonly surface: Surface;
   /** Whether `If-Match` names this route's own target resource (RFC 9110 §13.1.1). */

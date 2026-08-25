@@ -9,13 +9,13 @@
  * fetching it. It is also already the shape every other identifier in this
  * specification uses — `urn:changeover:schema:refusal:0.1`.
  *
- * ### The body composition, settled
+ * ### The body composition, decided
  *
  * `schemas/refusal.schema.json` is `additionalProperties: false`, so a body that
  * carries RFC 9457 members alongside the refusal members does not validate
  * against the refusal schema as-is. `docs/BUILD-CONTRACT.md` §6 asked BIND-001
- * to settle this and its default ruling stands, because SPEC.md §6.3 does not
- * settle it otherwise: **the HTTP body is the refusal document plus exactly
+ * to decide this and its default ruling stands, because SPEC.md §6.3 does not
+ * decide it otherwise: **the HTTP body is the refusal document plus exactly
  * three RFC 9457 members — `type`, `status`, `title` — and C-REFUSE validates
  * the document obtained by removing exactly those three.** The MCP binding
  * carries the refusal document unmodified.
