@@ -1,0 +1,16 @@
+{
+  "name": "@changeover/adapter-reference",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The authoritative in-memory reference adapter. Profile 1, hold_basis system_of_record.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@changeover/core": "*",
+    "@changeover/schema": "*",
+    "@changeover/store": "*"
+  }
+}

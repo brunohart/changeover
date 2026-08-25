@@ -1,0 +1,15 @@
+{
+  "name": "@changeover/core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The five verbs. Guards, locking, derived state, idempotency, budgets, hand-off, claim, access log.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@changeover/schema": "*",
+    "@changeover/store": "*"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "@changeover/http",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The HTTP binding: nine routes over node:http, RFC 9457 problem+json with URN types.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@changeover/core": "*",
+    "@changeover/schema": "*"
+  }
+}
