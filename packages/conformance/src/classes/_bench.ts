@@ -518,8 +518,14 @@ export interface CallOptions {
   readonly token?: string;
   readonly headers?: Record<string, string>;
   readonly body?: unknown;
-  /** `manual` leaves a 3xx unfollowed, which is how C-ORIGIN sees one at all. */
-  readonly redirect?: RequestRedirect;
+  /**
+   * `manual` leaves a 3xx unfollowed, which is how C-ORIGIN sees one at all.
+   *
+   * Spelled out rather than borrowed as `RequestRedirect`: that name is a DOM
+   * lib global, this tsconfig does not include the DOM lib, and `npx tsc
+   * --noEmit` reported it missing.
+   */
+  readonly redirect?: "follow" | "manual" | "error";
 }
 
 export interface Call {

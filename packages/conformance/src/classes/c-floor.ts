@@ -47,8 +47,11 @@ export const spec_row =
   " a published threshold and does not hard-fail below it. floor_ms never increases post-grant;" +
   " expires_at >= floor_deadline; operator_overrides reported separately.";
 
+/** `capability.floor_evidence`, as the document publishes it. */
 interface FloorEvidenceDocument {
   readonly observations: number;
+  readonly window_start: string;
+  readonly window_end: string;
   readonly min_observed_retention_ms: number;
   readonly safety_margin_ms: number;
   readonly violations: number;
@@ -98,7 +101,7 @@ export async function run(bench: ConformanceBench): Promise<readonly ClauseOutco
   );
   c.that(
     "ceiling_control",
-    !floorIsWarranted(HOLD_POLICY_PUBLISHED.policy_max_floor_ms, evidence as never),
+    !floorIsWarranted(HOLD_POLICY_PUBLISHED.policy_max_floor_ms, evidence),
     `and the unclamped default ceiling (${HOLD_POLICY_PUBLISHED.policy_max_floor_ms}ms) is NOT warranted by this evidence, so the clause above is a measurement rather than a constant — a site publishing the default unchanged fails it`,
   );
 
@@ -115,7 +118,7 @@ export async function run(bench: ConformanceBench): Promise<readonly ClauseOutco
     }
     granted.push({ requested, floor_ms: Number((hold.json as { floor_ms: number }).floor_ms) });
   }
-  const unwarranted = granted.filter((g) => !floorIsWarranted(g.floor_ms, evidence as never));
+  const unwarranted = granted.filter((g) => !floorIsWarranted(g.floor_ms, evidence));
   c.is(
     "granted_warranted",
     unwarranted.length,
