@@ -139,15 +139,23 @@ export interface HandOffResult {
  * failure that shows up in roughly one whole-suite run in twelve and is green
  * the other eleven.
  *
- * **`greatest(expires_at, …)` is T6 made structural.** T5's `min()` is a ceiling
- * on how far a hand-off may *extend* the seats' life, not a licence to shorten
- * it: its own last sentence says hand-off "is the only event that may extend a
- * seat's held-until, and it **MUST** do so", and T6 requires `claim_expires_at ≥
- * expires_at` for the life of the Hold. A Hold granted a floor longer than
- * `handoff_floor_ms` would otherwise have its held-until cut by the very call
- * that promised the customer more time, and `hold_claim_not_before_expiry` would
- * reject the row — correctly, but as a `23514` at the end of a customer's
- * checkout rather than as arithmetic here.
+ * **The operators, and why they are this way round.** T5 is a ceiling —
+ * `claim_expires_at = min(handed_off_at + handoff_floor_ms, sales_cutoff_at)` —
+ * and T6 is a floor: `claim_expires_at ≥ expires_at` for the life of the Hold,
+ * because hand-off "is the only event that may extend a seat's held-until, and
+ * it **MUST** do so". So the shape is CL4's ceiling with T6's floor applied
+ * **inside** it: `least(cutoff, greatest(expires_at, handed_off_at + floor))`.
+ *
+ * Until 2026-08-26 it was written the other way round — `greatest(expires_at,
+ * least(…, cutoff))` — and the outer `greatest` defeated the clamp whenever
+ * `expires_at > sales_cutoff_at`. This module argued, in a paragraph that has
+ * been deleted, that T5's `min()` may be overridden to keep T6. It cannot, and
+ * it does not have to: the state that made the two unsatisfiable was
+ * `expires_at` running past the cutoff, and `insertHold` no longer mints one.
+ * With `expires_at ≤ sales_cutoff_at` true at grant by construction, this
+ * expression satisfies both rules for every Hold this Server can produce, and
+ * `hold_claim_not_before_expiry` is satisfied by arithmetic rather than by
+ * argument.
  *
  * `coalesce` on `$4` handles an Occasion with no published `sales_cutoff_at`:
  * no cutoff is no clamp, not a clamp to null.
@@ -155,9 +163,9 @@ export interface HandOffResult {
 export const HANDOFF_SQL: string =
   "update hold set handed_off_at = $2::timestamptz," +
   " handoff_floor_ms = $3::int," +
-  " claim_expires_at = greatest(expires_at, least(" +
-  "   $2::timestamptz + ($3::int * interval '1 millisecond')," +
-  "   coalesce($4::timestamptz, $2::timestamptz + ($3::int * interval '1 millisecond'))))" +
+  " claim_expires_at = least(" +
+  "   coalesce($4::timestamptz, 'infinity'::timestamptz)," +
+  "   greatest(expires_at, $2::timestamptz + ($3::int * interval '1 millisecond')))" +
   " where hold_id = $1 and handed_off_at is null" +
   ` returning ${rfc3339Column("handed_off_at")}, handoff_floor_ms, ${rfc3339Column("claim_expires_at")}`;
 
