@@ -43,7 +43,39 @@ export interface Body {
   /** Where these bytes came from, precise enough to act on a hit. */
   readonly label: string;
   readonly text: string;
+  /**
+   * The HTTP status these bytes came back with, or `undefined` on a binding
+   * that has none.
+   *
+   * Recorded from 2026-08-26. Without it a case labelled "poisoned X" is a
+   * label and nothing more: `poisoned intent_digest` sat in this corpus for the
+   * life of the branch scanning a **201 Created** Hold document under a refusal
+   * label, and the class had no way to notice. The label says what was meant;
+   * the status says what happened; {@link REFUSAL_LABELS} asserts they agree.
+   */
+  readonly status?: number;
 }
+
+/**
+ * Labels in this corpus that MUST come back 4xx. A poisoned request answered
+ * `201` is not a refusal whose prose can be audited — it is a granted Hold.
+ *
+ * `poisoned Idempotency-Key` is deliberately NOT here, and the reason is worth
+ * stating because it looks like an omission. I1's alphabet is RFC 3986 `pchar`,
+ * which includes `@` and `.`, so `sarah.chen@example.com4111111111111111` is a
+ * perfectly well-formed 38-character key. `201` is the correct answer. What is
+ * asserted about it is P2 and the echo scan: the key is stored only as an HMAC
+ * and never comes back out — which `_canary` and `_no_echo` below both check.
+ */
+export const REFUSAL_LABELS: readonly string[] = Object.freeze([
+  "no credential",
+  "unknown Occasion",
+  "unknown Hold",
+  "malformed body",
+  "poisoned intent_digest",
+  "poisoned seat id",
+  "poisoned member name",
+]);
 
 /**
  * The synthetic personal values the canary is fed and the canary is tested with.
@@ -83,7 +115,8 @@ export async function httpBodies(): Promise<{
   const bench = await httpBench();
   const bodies: Body[] = [];
   const settlement: number[] = [];
-  const add = (label: string, r: { text: string }) => bodies.push({ label, text: r.text });
+  const add = (label: string, r: { text: string; status?: number }) =>
+    bodies.push({ label, text: r.text, status: r.status });
 
   try {
     const held = await call(bench, "POST", "/changeover/v0/holds", {
@@ -189,6 +222,26 @@ export async function httpBodies(): Promise<{
         token: AGENT_TOKEN,
       }),
     );
+    // The one input that echoed, and which this corpus did not send.
+    //
+    // Every body above carries only KNOWN member names, so the unknown-member
+    // path — the one place a caller-controlled string was interpolated into
+    // `refusal.reason` — was structurally unreachable from this set. The
+    // detector was never wrong; it was never handed the body. A member NAME is
+    // caller-controlled exactly as a member value is, and V3 guarantees this
+    // request is refused, which is precisely what makes the refusal's prose a
+    // channel back out.
+    add(
+      "poisoned member name",
+      await call(bench, "POST", "/changeover/v0/holds", {
+        token: AGENT_TOKEN,
+        headers: { "Idempotency-Key": key("canary-member") },
+        body: {
+          ...holdBody(["A:7"]),
+          [`${POISON.email} ${POISON.pan} ${POISON.e164}`]: 1,
+        },
+      }),
+    );
 
     /* -- Lock 1, over a socket: the settlement routes are simply not there --- */
 
@@ -291,6 +344,13 @@ export async function mcpBodies(): Promise<{
     await invoke("poisoned seat id", "hold_seats", {
       ...holdArgs([POISON.email], { idempotency_key: mcpKey("canary-mcp-seat") }),
     });
+    // The MCP counterpart of the poisoned member name, and worse in kind: a
+    // `content` block is what a model reads as the tool's answer, so a
+    // reflected tool name arrives in the model's context labelled as the Server
+    // speaking. The settlement-shaped names below are called too, but they are
+    // benign strings — `settle`, `pay`, `capture` — and a benign name cannot
+    // show whether the name is reflected.
+    await invoke("poisoned tool name", `${POISON.email} ${POISON.pan}`, {});
 
     /* -- Lock 1: a settlement tool cannot be called because it is not there -- */
 

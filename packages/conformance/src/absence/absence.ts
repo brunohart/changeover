@@ -22,7 +22,7 @@ import { ROUTES } from "@changeover/http/routes.ts";
 import { TOOLS } from "@changeover/mcp/tools.ts";
 
 import type { Body, SettlementCall } from "./bodies.ts";
-import { CAPABILITY_LABEL, POISON, httpBodies, mcpBodies } from "./bodies.ts";
+import { CAPABILITY_LABEL, POISON, REFUSAL_LABELS, httpBodies, mcpBodies } from "./bodies.ts";
 import type { Db } from "@changeover/store/db.ts";
 import {
   KILL_TESTS,
@@ -367,6 +367,25 @@ export function canaryClauses(
     internals.length === 0
       ? held(`C-ABSENCE.4/${binding}_no_internals`, `no ${binding} body carries a stack frame, a filesystem path or a JavaScript error class name`)
       : broke(`C-ABSENCE.4/${binding}_no_internals`, "an internal error string reached the wire: " + internals.join(" · ")),
+  );
+
+  // A label that says "poisoned X" and a status that says 201 is a granted Hold
+  // being scanned as though it were a refusal — and the scan passes, because a
+  // Hold document carries nothing personal. The label is the claim; the status
+  // is the observation; a class that never compares them cannot tell when the
+  // two have come apart. Bindings with no status (MCP) are exempt by shape.
+  const mislabelled: string[] = [];
+  for (const body of bodies) {
+    if (!REFUSAL_LABELS.includes(body.label)) continue;
+    if (body.status === undefined) continue;
+    if (body.status < 400 || body.status > 499) {
+      mislabelled.push(`${body.label} answered ${body.status}`);
+    }
+  }
+  out.push(
+    mislabelled.length === 0
+      ? held(`C-ABSENCE.4/${binding}_refusals_refused`, `every ${binding} case labelled a refusal actually answered 4xx — the prose scanned below is refusal prose and not a granted document`)
+      : broke(`C-ABSENCE.4/${binding}_refusals_refused`, "a case labelled a refusal was not one: " + mislabelled.join(" · ")),
   );
 
   const echoed: string[] = [];
