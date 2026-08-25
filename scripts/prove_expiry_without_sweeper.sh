@@ -40,9 +40,11 @@ cd "$(dirname "$0")/.." || exit 2
 # A static observation, before anything is opened: this repository ships no
 # recurring timer at all. It is not the proof — the proof is the four
 # measurements below — but a sweeper that existed in the source and was merely
-# switched off is worth refusing to start from.
-SWEEPERS=$(grep -rlE 'setInterval|node-cron|node-schedule' packages/*/src 2>/dev/null | grep -v '/conformance/src/lifecycle/orphan-client.ts' | wc -l | tr -d ' ')
-[ "$SWEEPERS" = "0" ] || { echo "cannot prove — a recurring timer was found in packages/*/src; the sweeper-absence claim needs re-stating"; exit 2; }
+# switched off is worth refusing to start from. The scan is the conformance
+# module's own, called here rather than restated as a grep: two definitions of
+# "a recurring timer" is one of them silently drifting.
+SWEEPERS=$(node --input-type=module -e 'import { recurringTimerSources } from "./packages/conformance/src/lifecycle/sweeper-absence.ts"; console.log(recurringTimerSources().join(" "));' 2>&1)
+[ -z "$SWEEPERS" ] || { echo "cannot prove — a recurring timer is registered in: $SWEEPERS"; echo "                the sweeper-absence claim needs re-stating before C-ORPHAN can mean anything"; exit 2; }
 
 PG=1
 if [ -z "${CHANGEOVER_PG_URL:-}" ]; then
