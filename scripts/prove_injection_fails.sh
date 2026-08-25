@@ -36,15 +36,15 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
 # --- preconditions. Each one exits 2 and says how to satisfy it. -------------
-[ -d node_modules/@electric-sql/pglite ] || { echo "cannot prove -- PGlite not installed; run npm install at the repository root"; exit 2; }
-[ -d node_modules/canonicalize ]         || { echo "cannot prove -- canonicalize not installed; run npm install at the repository root"; exit 2; }
-[ -f scripts/lib/project.mjs ]           || { echo "cannot prove -- scripts/lib/project.mjs missing; C-ETAG needs the harness projector"; exit 2; }
-[ -f schemas/projection-0-1.json ]       || { echo "cannot prove -- schemas/projection-0-1.json missing"; exit 2; }
-[ -f fixtures/golden/delegation.json ]   || { echo "cannot prove -- fixtures/golden/delegation.json missing; O1 cannot be decided without the venue delegation record"; exit 2; }
-[ -f fixtures/golden/occasion-embassy-sat-1900.json ] || { echo "cannot prove -- the golden Occasions are missing; the byte-identity claim has nothing to be identical to"; exit 2; }
-[ -f packages/core/src/hold-seats.ts ]   || { echo "cannot prove -- packages/core/src/hold-seats.ts missing; there is no boundary to cross"; exit 2; }
-[ -f packages/core/src/access-log.ts ]   || { echo "cannot prove -- packages/core/src/access-log.ts missing; P1 is enforced there"; exit 2; }
-[ -f packages/conformance/src/inject/c-inject.ts ] || { echo "cannot prove -- packages/conformance/src/inject/c-inject.ts missing"; exit 2; }
+[ -d node_modules/@electric-sql/pglite ] || { echo "cannot prove — PGlite not installed; run npm install at the repository root"; exit 2; }
+[ -d node_modules/canonicalize ]         || { echo "cannot prove — canonicalize not installed; run npm install at the repository root"; exit 2; }
+[ -f scripts/lib/project.mjs ]           || { echo "cannot prove — scripts/lib/project.mjs missing; C-ETAG needs the harness projector"; exit 2; }
+[ -f schemas/projection-0-1.json ]       || { echo "cannot prove — schemas/projection-0-1.json missing"; exit 2; }
+[ -f fixtures/golden/delegation.json ]   || { echo "cannot prove — fixtures/golden/delegation.json missing; O1 cannot be decided without the venue delegation record"; exit 2; }
+[ -f fixtures/golden/occasion-embassy-sat-1900.json ] || { echo "cannot prove — the golden Occasions are missing; the byte-identity claim has nothing to be identical to"; exit 2; }
+[ -f packages/core/src/hold-seats.ts ]   || { echo "cannot prove — packages/core/src/hold-seats.ts missing; there is no boundary to cross"; exit 2; }
+[ -f packages/core/src/access-log.ts ]   || { echo "cannot prove — packages/core/src/access-log.ts missing; P1 is enforced there"; exit 2; }
+[ -f packages/conformance/src/inject/c-inject.ts ] || { echo "cannot prove — packages/conformance/src/inject/c-inject.ts missing"; exit 2; }
 
 node --input-type=module -e '
 import { readFileSync } from "node:fs";
@@ -56,8 +56,8 @@ import { runCInject } from "./packages/conformance/src/inject/c-inject.ts";
 import { runCPiiIngest } from "./packages/conformance/src/inject/c-pii-ingest.ts";
 
 let fail = 0, pass = 0;
-const ok  = (m) => { console.log("ok -- " + m); pass++; };
-const bad = (m) => { console.log("FAIL -- " + m); fail = 1; };
+const ok  = (m) => { console.log("ok — " + m); pass++; };
+const bad = (m) => { console.log("FAIL — " + m); fail = 1; };
 const report = (checks) => { for (const c of checks) (c.held ? ok : bad)(c.id + ": " + c.note); };
 
 const POINTERS = JSON.parse(readFileSync("schemas/projection-0-1.json", "utf8")).pointers;
@@ -81,7 +81,7 @@ try {
 }
 
 if (unreachable !== null) {
-  console.log("cannot prove -- " + unreachable.message);
+  console.log("cannot prove — " + unreachable.message);
   console.log("  to make it provable:");
   for (const line of unreachable.remedy.split("\n")) console.log("    " + line);
   process.exit(EXIT_CANNOT_PROVE);
