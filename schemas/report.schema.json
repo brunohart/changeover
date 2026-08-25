@@ -1,0 +1,339 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:report:0.1",
+  "title": "Conformance report",
+  "description": "A dated conformance report, per SPEC.md §7. NOT a protocol document: it is emitted by the harness, never by a Server, and its member names are deliberately absent from schemas/member-manifest.json — dragging them into Lock 2's set-equality check would break prove_member_manifest.sh for reasons nobody would find quickly. Reports are never restated (V8): a later run is a NEW report, keyed on (spec_version, register_version) with run_at making each entry of that series distinct. There is no field for a name, email, phone number, loyalty number or payment instrument, and no member that settles, authorises, captures, refunds or prices.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "report_schema",
+    "spec_version",
+    "register_version",
+    "profile",
+    "hold_basis",
+    "floor_basis",
+    "implementation",
+    "bindings",
+    "binding_coverage",
+    "run_at",
+    "trials",
+    "selection",
+    "classes",
+    "floor_violations",
+    "operator_overrides",
+    "release_latency_ms",
+    "oversell_events",
+    "harness",
+    "summary"
+  ],
+  "properties": {
+    "report_schema": {
+      "description": "The version of THIS document's own shape. Separate from spec_version, because the report format and the protocol version each move for their own reasons.",
+      "const": "0.1"
+    },
+    "spec_version": {
+      "description": "The CHANGEOVER specification version the run asserted against. Half of V8's key.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "register_version": {
+      "description": "The presentation-class register version. The other half of V8's key. A spec change does not invalidate an old report; it makes it an old report.",
+      "type": "string",
+      "minLength": 1
+    },
+    "profile": {
+      "description": "0 legible · 1 held · 1S shadow.",
+      "enum": ["0", "1", "1S"]
+    },
+    "hold_basis": { "enum": ["system_of_record", "shadow"] },
+    "floor_basis": { "enum": ["owned_store", "measured_warranty"] },
+    "implementation": {
+      "description": "What was under test. Never a claim of affiliation with any vendor; a name a reader can check.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "origin": {
+          "description": "Where the implementation was reached, when it was reached over a network. Absent for an in-process run.",
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "bindings": {
+      "description": "The bindings this run was asked to exercise.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/binding" }
+    },
+    "binding_coverage": {
+      "description": "One entry per requested binding, saying whether any class actually drove it. A binding nobody exercised is NOT a pass: the report may not claim conformance over a transport it never spoke.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["binding", "exercised", "classes"],
+        "properties": {
+          "binding": { "$ref": "#/$defs/binding" },
+          "exercised": { "type": "boolean" },
+          "classes": {
+            "description": "The classes that drove this binding. Empty exactly when exercised is false.",
+            "type": "array",
+            "items": { "$ref": "#/$defs/class_id" }
+          },
+          "reason": {
+            "description": "REQUIRED when exercised is false. Why no class drove it, in terms that stay true.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "exercised": { "const": false } }, "required": ["exercised"] },
+            "then": {
+              "required": ["reason"],
+              "properties": { "classes": { "maxItems": 0 } }
+            }
+          },
+          {
+            "if": { "properties": { "exercised": { "const": true } }, "required": ["exercised"] },
+            "then": { "properties": { "classes": { "minItems": 1 } } }
+          }
+        ]
+      }
+    },
+    "run_at": {
+      "description": "RFC 3339 with a mandatory offset, read from the machine that ran the harness. The third element of the non-restatement key.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?([Zz]|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "trials": {
+      "description": "Hold attempts made across the whole run. §7 names it because a concurrency result without one is not reproducible.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "selection": {
+      "description": "Which classes this run was restricted to. A restricted run cannot produce a pass for a class it did not execute — every unselected class is unprovable, naming the restriction.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["only"],
+      "properties": {
+        "only": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/class_id" } }
+          ]
+        }
+      }
+    },
+    "classes": {
+      "description": "One entry per §7 class. Every registered class appears, whether or not it could be reached: a class absent from the list is indistinguishable from a class that passed.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/class_outcome" }
+    },
+    "floor_violations": {
+      "description": "Holds that stopped holding inside their own floor with no revocation_reason. Counted at the boundary, scoped to this run's own principals.",
+      "$ref": "#/$defs/count_measurement"
+    },
+    "operator_overrides": {
+      "description": "The same shape of event WITH a revocation_reason. Reported separately, because an honest exhibitor withdrawing seats must not read as non-conforming.",
+      "$ref": "#/$defs/count_measurement"
+    },
+    "release_latency_ms": {
+      "description": "Release → the seat is somebody else's, measured across the boundary. Carries its substrate, so a report cannot quietly attribute an in-process number to an exhibitor.",
+      "$ref": "#/$defs/latency_measurement"
+    },
+    "oversell_events": {
+      "description": "Physical seats carrying more than one occupying row. The number this whole protocol exists to keep at zero.",
+      "$ref": "#/$defs/count_measurement"
+    },
+    "harness": {
+      "description": "What produced the report. The commit hash is the whole point: a number without the code that measured it is an anecdote.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit", "dirty", "node", "driver", "concurrent"],
+      "properties": {
+        "commit": {
+          "description": "The harness commit hash, or null where the tree is not a repository. Never a guess.",
+          "oneOf": [{ "type": "string", "pattern": "^[0-9a-f]{40}$" }, { "type": "null" }]
+        },
+        "dirty": {
+          "description": "True when the working tree carried uncommitted changes. A dirty report says so rather than implying its commit is the code that ran.",
+          "oneOf": [{ "type": "boolean" }, { "type": "null" }]
+        },
+        "node": { "type": "string", "minLength": 1 },
+        "driver": { "enum": ["pglite", "pg", "none"] },
+        "concurrent": {
+          "description": "Whether the store could genuinely race two callers. False makes every concurrency class unprovable, and says why in one member.",
+          "type": "boolean"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pass", "fail", "unprovable", "exit_code", "line"],
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "unprovable": {
+          "description": "First-class, and never folded into either neighbour. A runner that collapses \"we could not reach your server\" into pass or fail destroys the only property that makes these reports worth publishing.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "exit_code": {
+          "description": "0 all-pass · 1 any-fail · 2 any-unprovable-and-no-fail. The third outcome has its own code because two codes cannot carry three answers.",
+          "enum": [0, 1, 2]
+        },
+        "line": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "binding": {
+      "description": "in_process is a real binding and is named as one: a class that drove the verbs directly spoke no transport, and calling that \"http\" would be a claim about a wire nobody put a byte on.",
+      "enum": ["http", "mcp", "in_process"]
+    },
+    "class_id": { "type": "string", "pattern": "^C-[A-Z0-9-]+$" },
+    "status": {
+      "description": "Three outcomes, not two. \"Your server violated the floor\" and \"we could not reach your server\" are different sentences and the report keeps them apart.",
+      "enum": ["pass", "fail", "unprovable"]
+    },
+    "count_measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "basis", "measured_by"],
+      "properties": {
+        "value": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+        "basis": { "enum": ["observed", "not_measured"] },
+        "measured_by": {
+          "description": "The class or procedure the number came from. A number with no source is not evidence.",
+          "type": "string",
+          "minLength": 1
+        },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "basis": { "const": "not_measured" } }, "required": ["basis"] },
+          "then": { "properties": { "value": { "type": "null" } }, "required": ["note"] }
+        },
+        {
+          "if": { "properties": { "basis": { "const": "observed" } }, "required": ["basis"] },
+          "then": { "properties": { "value": { "type": "integer" } } }
+        }
+      ]
+    },
+    "latency_measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "basis", "measured_by"],
+      "properties": {
+        "value": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["n", "p50", "p95", "max", "substrate"],
+              "properties": {
+                "n": { "type": "integer", "minimum": 1 },
+                "p50": { "type": "number", "minimum": 0 },
+                "p95": { "type": "number", "minimum": 0 },
+                "max": { "type": "number", "minimum": 0 },
+                "substrate": {
+                  "description": "The driver and the scenario the samples came from. An in-process number and a number off a real boundary are not the same measurement and must not read as one.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          ]
+        },
+        "basis": { "enum": ["observed", "not_measured"] },
+        "measured_by": { "type": "string", "minLength": 1 },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "basis": { "const": "not_measured" } }, "required": ["basis"] },
+          "then": { "properties": { "value": { "type": "null" } }, "required": ["note"] }
+        },
+        {
+          "if": { "properties": { "basis": { "const": "observed" } }, "required": ["basis"] },
+          "then": { "properties": { "value": { "type": "object" } } }
+        }
+      ]
+    },
+    "class_outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "spec_row", "status", "binding", "clauses"],
+      "properties": {
+        "class": { "$ref": "#/$defs/class_id" },
+        "spec_row": {
+          "description": "§7's own words for this row, carried so the report is auditable against the source rather than against a summary of it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "reason": {
+          "description": "REQUIRED on fail and on unprovable; forbidden on pass. An unreachable class with no stated reason is a place to put work.",
+          "type": "string",
+          "minLength": 1
+        },
+        "missing_path": {
+          "description": "A repository path whose absence is the reason. Re-checked by the proof: the day the path appears, the blocker is stale and the suite says so.",
+          "type": "string",
+          "minLength": 1
+        },
+        "binding": { "oneOf": [{ "$ref": "#/$defs/binding" }, { "type": "null" }] },
+        "source": {
+          "description": "The module that ran the class, repository-relative. Absent exactly when nothing ran it.",
+          "type": "string",
+          "minLength": 1
+        },
+        "trials": { "type": "integer", "minimum": 0 },
+        "duration_ms": { "type": "number", "minimum": 0 },
+        "clauses": {
+          "description": "A §7 row is several clauses, and reporting a row as one boolean throws away which half was reached. Empty exactly when nothing ran — which is a fail or an unprovable, never a pass.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clause", "status", "note"],
+            "properties": {
+              "clause": { "type": "string", "minLength": 1 },
+              "status": { "$ref": "#/$defs/status" },
+              "note": { "type": "string", "minLength": 1 },
+              "missing_path": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "pass" } }, "required": ["status"] },
+          "then": {
+            "not": { "required": ["reason"] },
+            "properties": { "clauses": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "fail" } }, "required": ["status"] },
+          "then": { "required": ["reason"] }
+        },
+        {
+          "if": { "properties": { "status": { "const": "unprovable" } }, "required": ["status"] },
+          "then": { "required": ["reason"] }
+        }
+      ]
+    }
+  }
+}
