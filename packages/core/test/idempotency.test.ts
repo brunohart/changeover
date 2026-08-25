@@ -9,7 +9,7 @@
 
 import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import canonicalize from "canonicalize";
+import canonicalizeModule from "canonicalize";
 
 import { isRefusal } from "@changeover/schema/refusal.ts";
 import { holdSeats } from "../src/hold-seats.ts";
@@ -30,6 +30,7 @@ import {
   requestDigest,
   withIdempotency,
 } from "../src/idempotency.ts";
+import type { IdempotencyOutcome } from "../src/idempotency.ts";
 import type { Bench } from "./lib/estate.ts";
 import { bench, etagFor, occasion } from "./lib/estate.ts";
 
@@ -75,6 +76,33 @@ function scope(idempotency_key: string, over: Partial<{ agent_id: string; princi
     verb: "hold_seats" as const,
     idempotency_key,
   };
+}
+
+/**
+ * `canonicalize` ships CommonJS with an ESM `.d.ts`, so the default binding is
+ * the namespace under this tsconfig and the call signature has to be restated.
+ * It is the third-party RFC 8785 the digest is checked against, and nothing else.
+ */
+const canonicalize = canonicalizeModule as unknown as (input: unknown) => string | undefined;
+
+/** A document as a bag of members — I4 is stated member by member, so it is read that way. */
+function members(document: object): Record<string, unknown> {
+  return document as unknown as Record<string, unknown>;
+}
+
+/** Narrow away the gate arm at a call site that has already excluded it. */
+function documentOf<T extends object>(outcome: IdempotencyOutcome<T>): T {
+  if (outcome.disposition === "input_required") {
+    throw new Error("expected a document, and the call returned input_required");
+  }
+  return outcome.record;
+}
+
+/** Narrow to the replay arm, asserting on the way through that it is one. */
+function replayOf<T extends object>(outcome: IdempotencyOutcome<T>): { record: T; claim_consumed: boolean } {
+  assert.equal(outcome.disposition, "replayed", "the call executed where it should have replayed");
+  if (outcome.disposition !== "replayed") throw new Error("unreachable");
+  return { record: outcome.record, claim_consumed: outcome.claim_consumed };
 }
 
 async function count(table: string): Promise<number> {
@@ -203,8 +231,8 @@ describe("I4 · a replay is not a cached response", () => {
     assert.equal(replay.disposition, "replayed");
     assert.equal(replay.replayed, true);
 
-    const a = first.record as Record<string, unknown>;
-    const z = replay.record as Record<string, unknown>;
+    const a = members(documentOf(first));
+    const z = members(replayOf(replay).record);
     for (const member of REPLAYED_MEMBERS) {
       assert.equal(JSON.stringify(z[member]), JSON.stringify(a[member]), `${member} moved on replay`);
     }
@@ -219,7 +247,7 @@ describe("I4 · a replay is not a cached response", () => {
     const req = request({ seats: ["D:1"] });
     const digest = holdSeatsDigest(req);
     const first = await withIdempotency(b.db, scope(key), digest, () => holdSeats(b.db, req, CREDENTIAL));
-    const hold_id = (first.record as { hold_id: string }).hold_id;
+    const hold_id = documentOf(first).hold_id;
 
     // The deadline passes. No reap runs, no sweeper exists — M1 is a derivation.
     await b.db.query(
@@ -234,7 +262,7 @@ describe("I4 · a replay is not a cached response", () => {
       throw new Error("I8: a matched key must not reach the guards");
     });
     assert.equal(replay.disposition, "replayed");
-    const z = replay.record as Record<string, unknown>;
+    const z = members(replayOf(replay).record);
     assert.equal(z.state, "expired", "a replayed Hold reported live over a passed deadline");
     assert.ok(Date.parse(z.expires_at as string) < Date.parse(z.server_time as string));
     assert.equal(z.hold_id, hold_id);
@@ -373,7 +401,7 @@ describe("I2 · scope is credential-derived", () => {
     );
     assert.equal(elsewhere.disposition, "executed", "one scope replayed another scope's response");
     assert.notEqual(
-      (elsewhere.record as { hold_id: string }).hold_id,
+      documentOf(elsewhere).hold_id,
       "",
     );
     assert.equal(await count("idempotency"), 2);
@@ -474,8 +502,8 @@ describe("I9 · a hand_off replay past the claim window", () => {
     });
 
     assert.equal(replay.disposition, "replayed");
-    assert.equal(replay.claim_consumed, false);
-    const z = replay.record as Record<string, unknown>;
+    assert.equal(replayOf(replay).claim_consumed, false);
+    const z = members(replayOf(replay).record);
     const handoff = z.handoff as Record<string, unknown>;
     assert.ok(handoff, "an open claim window dropped the hand-off block");
     assert.equal(handoff.claim_url, document.handoff.claim_url);
@@ -498,9 +526,9 @@ describe("I9 · a hand_off replay past the claim window", () => {
       throw new Error("I8: a matched key must not reach the verb");
     });
     assert.equal(replay.disposition, "replayed");
-    assert.equal(replay.claim_consumed, true);
+    assert.equal(replayOf(replay).claim_consumed, true);
 
-    const z = replay.record as Record<string, unknown>;
+    const z = members(replayOf(replay).record);
     assert.equal(z.handoff, undefined, "a spent claim window still carried the hand-off block");
     assert.equal(JSON.stringify(z).includes("claim_url"), false, "a replay re-emitted a spent claim_url");
     // The departure is confined to the claim: identity and floor still replay.
@@ -527,8 +555,8 @@ describe("I9 · a hand_off replay past the claim window", () => {
     const replay = await withIdempotency(b.db, s, digest, () => {
       throw new Error("I8: a matched key must not reach the verb");
     });
-    assert.equal(replay.claim_consumed, true);
-    const z = replay.record as Record<string, unknown>;
+    assert.equal(replayOf(replay).claim_consumed, true);
+    const z = members(replayOf(replay).record);
     assert.equal(z.handoff, undefined);
     assert.equal(z.state, "claimed");
     await b.reset();
