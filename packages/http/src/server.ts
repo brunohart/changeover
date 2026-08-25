@@ -51,6 +51,8 @@ import {
   isRefusal,
   refuse,
 } from "@changeover/schema/refusal.ts";
+import { HOLD_POLICY_PUBLISHED, principalBudgets } from "@changeover/core/budgets.ts";
+import type { HoldPolicyDocument } from "@changeover/core/budgets.ts";
 import { serverTime } from "@changeover/core/clock.ts";
 import { HOLD_COLUMNS, HOLD_STATE, deriveState } from "@changeover/core/derived.ts";
 import type { HoldRow, HoldState } from "@changeover/core/derived.ts";
@@ -350,7 +352,7 @@ async function route(
     case "get_occasion":
       return await serveOccasion(options, params.occasion_id as string, if_match, now);
     case "hold_seats":
-      return await serveHoldSeats(options, request, credentialOrThrow(credential), now);
+      return await serveHoldSeats(options, request, credentialOrThrow(credential), profile);
     case "get_hold":
       return await serveGetHold(options, params.hold_id as string, credentialOrThrow(credential));
     case "release_hold":
@@ -618,11 +620,39 @@ const HOLD_SEATS_MEMBERS: readonly string[] = Object.freeze([
   "intent_digest",
 ]);
 
+/**
+ * The options `hold_seats` runs under, derived from the policy this Server
+ * **publishes** and from nothing else.
+ *
+ * §2.5: *"A Server MUST NOT enforce a limit it has not published."* The converse
+ * is X1 and X3 — `max_live_holds_per_showtime`, `max_holds_per_site_per_hour`,
+ * `max_live_holds_per_cluster`, `max_live_seats_per_showtime`,
+ * `max_held_fraction_per_showtime` and `max_live_holds_per_site` **MUST** be
+ * enforced — so a binding that published a `hold_policy` in its capability
+ * document and left `BUDGETS_UNENFORCED` underneath it would be shipping the
+ * weapon §4.7 opens by naming. The published document and the enforced guard
+ * are therefore **one value**, read once, here.
+ */
+function holdSeatsOptions(options: ServerOptions, profile: Profile): HoldSeatsOptions {
+  const published: HoldPolicyDocument = options.site.hold_policy ?? HOLD_POLICY_PUBLISHED;
+  const supplied = options.hold_seats ?? {};
+  return {
+    ...supplied,
+    profile: supplied.profile ?? profile,
+    policy: supplied.policy ?? {
+      policy_max_floor_ms: published.policy_max_floor_ms,
+      max_seats_per_hold: published.max_seats_per_hold,
+      abandonment_floor_penalty_bp: published.abandonment_floor_penalty_bp,
+    },
+    budgets: supplied.budgets ?? principalBudgets(published),
+  };
+}
+
 async function serveHoldSeats(
   options: ServerOptions,
   request: HttpRequestLike,
   site_credential: SiteCredential,
-  now: Rfc3339,
+  profile: Profile,
 ): Promise<Built> {
   const { body } = writeBody(request, HOLD_SEATS_MEMBERS);
 
@@ -642,6 +672,7 @@ async function serveHoldSeats(
   const key = idempotencyKey(request, "hold_seats") as string;
   const credential: Credential = credentialOf(site_credential);
   const verb_request = body as unknown as HoldSeatsRequest;
+  const grant = holdSeatsOptions(options, profile);
 
   const outcome = await withIdempotency(
     options.db,
@@ -652,7 +683,7 @@ async function serveHoldSeats(
       idempotency_key: key,
     },
     holdSeatsDigest(verb_request),
-    () => holdSeats(options.db, verb_request, credential, options.hold_seats ?? {}),
+    () => holdSeats(options.db, verb_request, credential, grant),
   );
 
   if (outcome.disposition === "input_required") {

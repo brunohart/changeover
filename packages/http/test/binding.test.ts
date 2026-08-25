@@ -525,3 +525,31 @@ test("resolve_occasions pages on a stable cursor and refuses a window it does no
   });
   assertProblem(badCursor, "schema_validation", "a cursor this Server did not mint");
 });
+
+/* -- The published policy is the enforced policy ---------------------------- */
+
+test("the ceilings the capability document publishes are the ceilings the Server enforces", async () => {
+  await bench.reset();
+  const capability = await call(bench, "GET", "/.well-known/changeover");
+  const published = capability.json.hold_policy;
+  assert.equal(published.max_live_holds_per_showtime, 2);
+
+  assert.equal((await grant(["A:1"], "x1-a")).status, 201);
+  assert.equal((await grant(["A:2"], "x1-b")).status, 201);
+
+  // X1 is a MUST: the ceilings are enforced inside the insert transaction. A
+  // binding that published this document over BUDGETS_UNENFORCED would be
+  // shipping the weapon §4.7 opens by naming.
+  const third = await grant(["A:3"], "x1-c");
+  assertProblem(third, "hold_budget_exhausted", "the third live Hold on one showtime");
+  assert.equal(third.json.detail.limit, published.max_live_holds_per_showtime);
+
+  // A Retry-After that came from a real guard rather than from a test seam.
+  assert.equal(
+    Number(third.headers.get("retry-after")),
+    retryAfterSeconds(third.json.retry_after_ms),
+  );
+
+  const holds = await bench.db.query<{ n: string }>("select count(*)::text as n from hold");
+  assert.equal(Number(holds.rows[0]?.n), 2, "the refused grant left a row behind");
+});

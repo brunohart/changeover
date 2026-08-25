@@ -225,7 +225,25 @@ try {
   const stolen = await call(bench, "GET", "/changeover/v0/holds/" + scoped.json?.hold_id, { token: AGENT_TOKEN });
   is(stolen.json?.code, "hold_not_found", "and the principal named in the body cannot address the Hold (Z1)");
 
-  /* 9 — Profile 0 --------------------------------------------------------- */
+  /* 9 — the published policy is the enforced policy ----------------------- */
+
+  await bench.reset();
+  const capability = await call(bench, "GET", "/.well-known/changeover");
+  const ceiling = capability.json?.hold_policy?.max_live_holds_per_showtime;
+  is(ceiling, 2, "the capability document publishes max_live_holds_per_showtime");
+  const g1 = await call(bench, "POST", "/changeover/v0/holds", { token: AGENT_TOKEN, headers: { "Idempotency-Key": key("proof-x1a") }, body: holdBody(["A:1"]) });
+  const g2 = await call(bench, "POST", "/changeover/v0/holds", { token: AGENT_TOKEN, headers: { "Idempotency-Key": key("proof-x1b") }, body: holdBody(["A:2"]) });
+  is(g1.status, 201, "the first Hold on this showtime is granted");
+  is(g2.status, 201, "and the second, which is the published ceiling exactly");
+  const g3 = await call(bench, "POST", "/changeover/v0/holds", { token: AGENT_TOKEN, headers: { "Idempotency-Key": key("proof-x1c") }, body: holdBody(["A:3"]) });
+  is(g3.json?.code, "hold_budget_exhausted", "and the third is refused, so X1 is enforced and not merely published");
+  is(g3.json?.detail?.limit, ceiling, "and the refusal names the number the capability document published");
+  is(Number(g3.headers.get("retry-after")), retryAfterSeconds(g3.json?.retry_after_ms),
+     "Retry-After from a real guard, not a test seam, is still ceil(retry_after_ms/1000)");
+  const rows = await bench.db.query("select count(*)::text as n from hold");
+  is(Number(rows.rows[0]?.n), 2, "and the refused grant left no row behind");
+
+  /* 10 — Profile 0 -------------------------------------------------------- */
 
   legible = await httpBench({ profile: "0" });
   const holdVerbs = [
