@@ -202,7 +202,7 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
   const contenders = options.contenders ?? 4;
   const window_ms = options.window_ms ?? 1200;
   const polls = options.polls ?? 6;
-  const floor_ms = options.floor_ms ?? 3000;
+  const floor_ms = options.floor_ms ?? 10000;
   const trials = options.latency_trials ?? 12;
 
   const S1 = "occ_orph_seats_" + run;
@@ -286,12 +286,23 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
     // T1 before anything else: a dead client does not shorten its own floor. If
     // the seats came back here, every assertion below would be about a boundary
     // that had already broken its one warranty.
+    //
+    // Liveness is re-read from the store immediately before the probe, and the
+    // failure text says which of two very different things went wrong. A floor
+    // that had already run out would make the probe REAP and be granted — a
+    // green-looking refusal turning into an alarming one — and the cause would
+    // be this harness taking longer than its own fixture, not the boundary
+    // giving seats back early. The floor is 10s for the same reason: SIGKILL,
+    // a pid check and a spawn on a loaded machine are not free.
+    const stillLive = !(await expiredInStore(b.db, o1.ready.hold_id));
     const duringFloor = await refusalOf(() =>
       holdSeats(b.db, request(S1, ["A:1"], 60000), credential("principal_floorprobe_" + run)));
     checks.push(assert(
-      duringFloor === "seat_contended",
+      stillLive && duringFloor === "seat_contended",
       "T1 — inside the floor the dead client's seats are still held: a contender is refused seat_contended",
-      "inside the floor a contender got " + (duringFloor ?? "a grant") + " rather than seat_contended",
+      stillLive
+        ? "inside the floor a contender got " + (duringFloor ?? "a grant") + " rather than seat_contended"
+        : "the harness took longer than the " + floor_ms + "ms floor it set, so T1 was never probed inside it",
     ));
 
     const expired = await waitUntilExpired(b.db, o1.ready.hold_id, floor_ms + 5000);

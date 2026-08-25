@@ -269,17 +269,25 @@ export async function expiredInStore(q: Queryable, hold_id: string): Promise<boo
  * a failure — which is exactly the right way round.
  */
 export async function estateIntact(q: Queryable, occasion_ids: readonly string[]): Promise<boolean> {
-  const r = await q.query<{ n: string }>(
-    "select count(*)::text as n from occasion where occasion_id = any($1::text[])",
-    [[...occasion_ids]],
-  );
-  return Number(r.rows[0]?.n ?? 0) === occasion_ids.length;
+  try {
+    const r = await q.query<{ n: string }>(
+      "select count(*)::text as n from occasion where occasion_id = any($1::text[])",
+      [[...occasion_ids]],
+    );
+    return Number(r.rows[0]?.n ?? 0) === occasion_ids.length;
+  } catch {
+    // The store stopped answering — the container went away mid-run, which is
+    // how this was found. A question that cannot be asked has not been answered
+    // "no": throwing here would escape the class's own catch and take the whole
+    // proof down with an unhandled rejection instead of a cannot-prove.
+    return false;
+  }
 }
 
 /** The message every class prints when {@link estateIntact} says otherwise. */
 export const ESTATE_VANISHED =
-  "the estate this run seeded was truncated by another process on the shared store at " +
-  "CHANGEOVER_PG_URL before the assertions finished — a Hold cannot be observed surviving a " +
+  "the estate this run seeded is no longer in the store at CHANGEOVER_PG_URL — truncated by " +
+  "another process, or the store stopped answering. A Hold cannot be observed surviving a " +
   "database that no longer contains its Occasion. Re-run with the store to yourself.";
 
 export function sleep(ms: number): Promise<void> {
