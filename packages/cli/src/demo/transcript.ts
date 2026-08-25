@@ -12,6 +12,7 @@
 //   #  a count taken from the store, not from a response
 //   …  a wait, and how long it really was
 
+import type { Bench, Exhibitor } from "./bench.ts";
 import type { Beat, Reel } from "./reels.ts";
 import type { DemoResult, Verdict } from "./run.ts";
 
@@ -52,6 +53,40 @@ export function headerLines(): string[] {
     "  ?  a gate        #  a store count   …  a real wait",
     RULE,
   ];
+}
+
+/**
+ * What is happening during the silence before reel 1.
+ *
+ * Printed rather than waited through, because the wait IS the claim: §7 forbids
+ * a Server to grant a floor it has not measured, and measuring one means
+ * holding real seats and watching when they come back. A demo that hid this
+ * behind a spinner would be hiding the most expensive promise in the protocol.
+ */
+export function bootingLines(probe_floor_ms: number): string[] {
+  // The trials inside one measurement run concurrently, so the window is about
+  // one probe floor regardless of how many observations are taken.
+  const about = Math.round(probe_floor_ms / 1000);
+  return [
+    "",
+    "· booting two exhibitors over PGlite, in this process, on loopback.",
+    "· each one measures its own seat retention before it publishes a floor —",
+    `  §7 forbids granting one that was not measured, so this takes ~${about}s on purpose.`,
+  ];
+}
+
+export function bootedLines(bench: Bench): string[] {
+  const line = (exhibitor: Exhibitor): string => {
+    const evidence = exhibitor.measurement.evidence;
+    return (
+      `  ${exhibitor.venue_name.padEnd(14)} ${exhibitor.base.padEnd(22)} ` +
+      `floor ${String(exhibitor.policy.policy_max_floor_ms).padStart(6)}ms  ` +
+      `= ${evidence.min_observed_retention_ms}ms observed − ${evidence.safety_margin_ms}ms margin ` +
+      `over ${evidence.observations} observation${evidence.observations === 1 ? "" : "s"}, ` +
+      `${evidence.violations} violations`
+    );
+  };
+  return ["", `· up in ${(bench.boot_ms / 1000).toFixed(1)}s:`, line(bench.circuit), line(bench.independent)];
 }
 
 export function summaryLines(result: DemoResult, verdict: Verdict): string[] {

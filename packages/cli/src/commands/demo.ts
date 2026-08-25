@@ -14,7 +14,7 @@
 //   changeover demo --fast          a shorter floor measurement; a shorter floor
 
 import { runDemo, verdictOf } from "../demo/run.ts";
-import { headerLines, reelLines, summaryLines } from "../demo/transcript.ts";
+import { bootedLines, bootingLines, headerLines, reelLines, summaryLines } from "../demo/transcript.ts";
 
 /** The gate's own budget, and the number `prove_cold_start.sh` asserts against. */
 export const BUDGET_MS = 300000;
@@ -33,18 +33,24 @@ export function parseFlags(argv: readonly string[]): DemoFlags {
   };
 }
 
+/** The published default, and the one `prove_cold_start.sh` times. */
+export const DEFAULT_PROBE_FLOOR_MS = 15000;
+/** `--fast`: a shorter window warrants a shorter floor. Never the default. */
+export const FAST_PROBE_FLOOR_MS = 8000;
+
 export async function run(argv: string[]): Promise<number> {
   const flags = parseFlags(argv);
   const streaming = !flags.json && !flags.quiet;
+  const probe_floor_ms = flags.fast ? FAST_PROBE_FLOOR_MS : DEFAULT_PROBE_FLOOR_MS;
 
-  if (streaming) console.log(headerLines().join("\n"));
+  if (streaming) console.log([...headerLines(), ...bootingLines(probe_floor_ms)].join("\n"));
 
   const result = await runDemo({
-    // A shorter window warrants a shorter floor, and the reels then have less
-    // room between the grant and the hand-off. Offered because a cold CI box
-    // sometimes wants it, and NOT the default, because the default should be
-    // the numbers a reader would get.
-    ...(flags.fast ? { floor_trials: 1, probe_floor_ms: 8000 } : {}),
+    // Offered because a cold CI box sometimes wants it, and NOT the default,
+    // because the default should be the numbers a reader would get.
+    probe_floor_ms,
+    ...(flags.fast ? { floor_trials: 1 } : {}),
+    onBoot: streaming ? (bench) => console.log(bootedLines(bench).join("\n")) : undefined,
     onReel: streaming ? (reel) => console.log(reelLines(reel).join("\n")) : undefined,
   });
 
