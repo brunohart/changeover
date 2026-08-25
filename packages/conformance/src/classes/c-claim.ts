@@ -355,12 +355,20 @@ export async function run(bench: ConformanceBench): Promise<readonly ClauseOutco
 
   /* ── 8 · What this repository has no server for ───────────────────────── */
 
+  // Re-checked against the route table, not against a path: routes.ts exists, so
+  // a `missing_path` naming it could never go stale. What is absent is a ROUTE.
   const claim_routes = ROUTES.filter((r) => r.pattern.includes("claim") || r.pattern.includes("tickets"));
-  c.cannot(
-    "fetched_over_the_wire",
-    `§7 says GET {claim_url}, and the URL minted here lands at the venue's own seat-select page — deep_link is defined as landing on the exhibitor's EXISTING front end, and §6.3 declares ${ROUTES.length} routes of which ${claim_routes.length} serve a claim. So the render above is renderClaim, the function that endpoint would call, exercised in-process: the store effects are asserted exactly, and the wire behaviour of a page this repository does not contain is not`,
-    "packages/http/src/routes.ts",
-  );
+  if (claim_routes.length > 0) {
+    c.bad(
+      "fetched_over_the_wire",
+      `this clause has been unprovable because nothing in this repository serves a claim URL, and ${claim_routes.length} route now does (${claim_routes.map((r) => r.name).join(", ")}). The GET is reachable over the wire and prefetch-safety must be asserted there rather than in-process`,
+    );
+  } else {
+    c.cannot(
+      "fetched_over_the_wire",
+      `§7 says GET {claim_url}, and the URL minted here lands at the venue's own seat-select page — deep_link is defined as landing on the exhibitor's EXISTING front end, and §6.3 declares ${ROUTES.length} routes of which ${claim_routes.length} serve a claim. So the render above is renderClaim, the function that endpoint would call, exercised in-process: the store effects are asserted exactly, and the wire behaviour of a page this repository does not contain is not`,
+    );
+  }
 
   return c.items;
 }

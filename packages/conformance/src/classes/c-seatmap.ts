@@ -194,12 +194,20 @@ export async function run(bench: ConformanceBench): Promise<readonly ClauseOutco
 
   /* ── 8 · What §6.3 does not serve ─────────────────────────────────────── */
 
+  // Re-checked against the route table, not against a path: routes.ts exists, so
+  // a `missing_path` naming it could never go stale. What is absent is a ROUTE.
   const seat_routes = ROUTES.filter((r) => r.pattern.endsWith("/seats") || r.name.includes("seat_map"));
-  c.cannot(
-    "served",
-    `§2.10 says the seat map is SERVED at availability.seat_map_ref, and §6.3's binding declares ${ROUTES.length} routes of which ${seat_routes.length} serve one. Every Occasion this Server publishes therefore names a URL the Server does not answer, and "served from a venue-authorised origin" has no wire to be observed on. The map above was obtained through the adapter method, which is an in-process call and has no origin`,
-    "packages/http/src/routes.ts",
-  );
+  if (seat_routes.length > 0) {
+    c.bad(
+      "served",
+      `this clause has been unprovable because no route serves a seat map, and ${seat_routes.length} now does (${seat_routes.map((r) => r.name).join(", ")}). The map is reachable over the wire and must be fetched and checked here rather than obtained in-process`,
+    );
+  } else {
+    c.cannot(
+      "served",
+      `§2.10 says the seat map is SERVED at availability.seat_map_ref, and §6.3's binding declares ${ROUTES.length} routes of which ${seat_routes.length} serve one. Every Occasion this Server publishes therefore names a URL the Server does not answer, and "served from a venue-authorised origin" has no wire to be observed on. The map above was obtained through the adapter method, which is an in-process call and has no origin`,
+    );
+  }
 
   return c.items;
 }
