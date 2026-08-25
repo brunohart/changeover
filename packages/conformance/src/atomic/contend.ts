@@ -203,3 +203,50 @@ export async function rowsOfHold(db: Db, hold_id: string): Promise<string[]> {
   );
   return r.rows.map((row) => row.seat_id);
 }
+
+/* ── Evidence that "concurrent" meant concurrent ───────────────────────────── */
+
+export interface RaceResult {
+  readonly outcomes: Outcome[];
+  /** Wall clock from the first dispatch to the last settle. */
+  readonly span_ms: number;
+  /** The sum of every individual call's duration. */
+  readonly summed_ms: number;
+  /**
+   * `summed_ms / span_ms`. **One means they ran one after another.**
+   *
+   * This is the harness auditing itself, and it is here because the exact
+   * failure the exit-2 doctrine exists to prevent — a suite reporting a pass
+   * for a race it never ran — is also reachable *with* a real Postgres: a pool
+   * of one, an `await` inside the dispatch loop, or a driver that serialises
+   * would each turn "200 concurrent holds" into two hundred sequential ones,
+   * and every assertion in .1 would still hold. They would hold for a scenario
+   * nobody claimed. So the overlap is asserted, not assumed.
+   */
+  readonly overlap: number;
+}
+
+/** Dispatch every contender at once and measure whether they actually overlapped. */
+export async function raceAll(
+  db: Db,
+  who: readonly Contender[],
+  options: HoldSeatsOptions,
+  requested_floor_ms: number,
+): Promise<RaceResult> {
+  const started = Date.now();
+  const timed = await Promise.all(
+    who.map(async (c) => {
+      const at = Date.now();
+      const outcome = await contend(db, c, options, requested_floor_ms);
+      return { outcome, ms: Date.now() - at };
+    }),
+  );
+  const span_ms = Math.max(1, Date.now() - started);
+  const summed_ms = timed.reduce((a, x) => a + x.ms, 0);
+  return {
+    outcomes: timed.map((x) => x.outcome),
+    span_ms,
+    summed_ms,
+    overlap: summed_ms / span_ms,
+  };
+}
