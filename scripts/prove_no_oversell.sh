@@ -33,7 +33,8 @@ cd "$(dirname "$0")/.." || exit 2
 [ -f packages/conformance/src/atomic/assertions.ts ] || { echo "cannot prove — packages/conformance/src/atomic/assertions.ts missing (TEST-001)"; exit 2; }
 
 node --input-type=module -e '
-import { openDb, CannotProve, EXIT_CANNOT_PROVE } from "./packages/store/src/db.ts";
+import { CannotProve, EXIT_CANNOT_PROVE } from "./packages/store/src/db.ts";
+import { openRaceStore } from "./packages/conformance/src/atomic/sampler.ts";
 import { C_ATOMIC_PROFILE, profileLines } from "./packages/conformance/src/atomic/profile.ts";
 import {
   allOrNothing,
@@ -68,7 +69,9 @@ try {
   // One handle for all four. Under PGlite the pool size is ignored; under
   // node-postgres it is the number of connections "concurrent" actually means,
   // which is why the profile states it rather than leaving it to a default.
-  db = await openDb({ poolSize: C_ATOMIC_PROFILE.pool_size });
+  // Tagged with an application_name so the sampler in .1 and .2 counts THIS
+  // harness'"'"'s backends and not whatever else is on the shared database.
+  db = await openRaceStore(C_ATOMIC_PROFILE.pool_size);
 } catch (err) {
   remedy("the store did not open: " + String(err && err.message ? err.message : err));
   process.exit(EXIT_CANNOT_PROVE);

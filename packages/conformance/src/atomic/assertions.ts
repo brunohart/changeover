@@ -36,7 +36,64 @@ import {
   etagFor,
 } from "./estate.ts";
 import type { Contender, Outcome } from "./contend.ts";
-import { AGENT_ID, census, codeSummary, contend, occupantsOf, rowsOfHold, tally } from "./contend.ts";
+import { startSampler } from "./sampler.ts";
+import {
+  AGENT_ID,
+  census,
+  codeSummary,
+  contend,
+  occupantsOf,
+  raceAll,
+  rowsOfHold,
+  tally,
+} from "./contend.ts";
+
+/**
+ * Below this the calls did not overlap and "N concurrent" would be a lie.
+ *
+ * Deliberately low. The claim is *they raced*, not *they raced this hard*, and
+ * a threshold tuned to one machine's timings is a flake waiting for a slower
+ * one. Serial execution scores 1.0 by construction; anything at 2 or above had
+ * at least two calls in flight for at least half the run.
+ */
+export const MIN_OVERLAP = 2;
+
+/**
+ * The server's own account of the race, and the assertion that makes .1 and .2
+ * claims about the boundary rather than about this process's event loop.
+ *
+ * Client-side overlap counts time spent waiting for a connection, so a pool of
+ * one scores well above 1.0 while running strictly one transaction at a time.
+ * `pg_stat_activity` cannot be fooled that way: it counts backends, and two
+ * backends inside a transaction at one instant is what "concurrent" means.
+ */
+function reportPeak(report: Reporter, label: string, peak: number | null, profile: AtomicProfile): void {
+  if (peak === null) {
+    report.bad(`${label} — no sampler could be opened, so nothing observed the server during the race`);
+    return;
+  }
+  peak >= 2
+    ? report.ok(
+        `${label} — the race is on the SERVER: pg_stat_activity showed up to ${peak} of this harness's ` +
+          `backends inside a transaction at one instant, against a pool of ${profile.pool_size}`,
+      )
+    : report.bad(
+        `${label} — the server never had two transactions in flight at once (peak ${peak}): the contenders ` +
+          "queued for a connection and every assertion below would hold for a scenario nobody claimed",
+      );
+}
+
+function reportOverlap(report: Reporter, label: string, r: { span_ms: number; summed_ms: number; overlap: number }, trials: number): void {
+  r.overlap >= MIN_OVERLAP
+    ? report.ok(
+        `${label} — the calls genuinely overlapped: ${trials} contenders spent ${r.summed_ms}ms in flight ` +
+          `across ${r.span_ms}ms of wall clock, an overlap of ${r.overlap.toFixed(1)}× (serial is 1.0)`,
+      )
+    : report.bad(
+        `${label} — overlap ${r.overlap.toFixed(2)}×: ${r.summed_ms}ms of calls in ${r.span_ms}ms of wall ` +
+          "clock is a queue, not a race, and every assertion below would hold for a scenario nobody claimed",
+      );
+}
 
 /** One `ok — ` line per assertion, which is what `run_proofs.sh` counts. */
 export interface Reporter {
@@ -110,11 +167,15 @@ export async function raceHouse(
   const options = atomicOptions(profile.max_seats_per_hold);
   const who = contenders(profile, "race");
 
-  const outcomes: Outcome[] = await Promise.all(
-    who.map((c) => contend(db, c, options, profile.requested_floor_ms)),
-  );
+  const sampler = await startSampler();
+  const race = await raceAll(db, who, options, profile.requested_floor_ms);
+  const peak = sampler === null ? null : await sampler.stop();
+  const outcomes: Outcome[] = race.outcomes;
   const t = tally(outcomes);
   const c = await census(db);
+
+  reportOverlap(report, ".1", race, profile.trials);
+  reportPeak(report, ".1", peak, profile);
 
   t.grants === profile.house_capacity
     ? report.ok(
@@ -261,11 +322,15 @@ export async function raceExpiryBoundary(
 
   const options = atomicOptions(profile.max_seats_per_hold);
   const who = contenders(profile, "boundary");
-  const outcomes: Outcome[] = await Promise.all(
-    who.map((c) => contend(db, c, options, profile.requested_floor_ms)),
-  );
+  const sampler = await startSampler();
+  const race = await raceAll(db, who, options, profile.requested_floor_ms);
+  const peak = sampler === null ? null : await sampler.stop();
+  const outcomes: Outcome[] = race.outcomes;
   const t = tally(outcomes);
   const c = await census(db);
+
+  reportOverlap(report, ".2", race, profile.trials);
+  reportPeak(report, ".2", peak, profile);
 
   t.deadlocks === 0
     ? report.ok(
