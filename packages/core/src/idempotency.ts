@@ -219,3 +219,174 @@ export function handOffDigest(hold_id: string): string {
 export function releaseHoldDigest(hold_id: string): string {
   return requestDigest({ hold_id });
 }
+
+/* ── 5 · I4 — the two halves of a replayed document ────────────────────────── */
+
+/**
+ * *"`hold_id`, `seats`, `granted_at`, `floor_ms` and `floor_deadline` MUST be
+ * byte-identical."* These are the identity of the grant and the immovable cue
+ * mark. Nothing that happens after the grant can move any of them: there is no
+ * extend verb (T3), and `floor_deadline = granted_at + floor_ms` is a CHECK
+ * constraint in the schema rather than a promise in the code.
+ */
+export const REPLAYED_MEMBERS: readonly string[] =
+  Object.freeze(["hold_id", "seats", "granted_at", "floor_ms", "floor_deadline"]);
+
+/**
+ * *"…identical in every member **except** `server_time`, `state`, `expires_at`
+ * and `claim_expires_at`, which MUST be re-projected from current state at
+ * replay."*
+ *
+ * A table rather than four assignments, because the proof reads it. A member
+ * added to one list and forgotten in the other is exactly the defect that ships
+ * a response cache wearing an idempotency layer's name, and a list a script can
+ * compare against the specification is the only version of this that stays true.
+ */
+export const REPROJECTED_MEMBERS: readonly string[] =
+  Object.freeze(["server_time", "state", "expires_at", "claim_expires_at"]);
+
+/**
+ * `claim_expires_at` lives at `/handoff/claim_expires_at` in the Hold document,
+ * not at the root — `hold.schema.json` puts `handed_off_at`, `handoff_floor_ms`,
+ * `claim_url` and `claim_expires_at` inside one REQUIRED-together object. The
+ * re-projection therefore reaches one level down for exactly that member.
+ */
+export const HANDOFF_MEMBER = "handoff";
+export const CLAIM_URL_MEMBER = "claim_url";
+
+export const HOLD_STATE = {
+  live: "live",
+  handed_off: "handed_off",
+  claimed: "claimed",
+  released: "released",
+  expired: "expired",
+  revoked: "revoked",
+} as const;
+
+export type HoldState = (typeof HOLD_STATE)[keyof typeof HOLD_STATE];
+
+/** The four members I4 re-projects, read from current state in one clock reading. */
+export interface TimeBearing {
+  readonly server_time: Rfc3339;
+  readonly state: HoldState;
+  readonly expires_at: Rfc3339;
+  readonly claim_expires_at?: Rfc3339;
+  /**
+   * I9's trigger. True once the claim has been consumed, or once the claim
+   * window has closed — either way the claim URL is spent and a replay must not
+   * re-emit it.
+   */
+  readonly claim_spent: boolean;
+}
+
+/**
+ * M1, as one SQL expression over one reading of one clock.
+ *
+ * *"`state` is derived at every read: `revoked` if an override is recorded;
+ * `released` if a release is; `claimed` if a claim is; `handed_off` if handed
+ * off and `server_time < claim_expires_at`; `live` if `server_time <
+ * expires_at`; else `expired`."*
+ *
+ * The `case` reads `t.now` five times and `t.now` is read once, in a CTE. Calling
+ * `clock_timestamp()` inline in each branch would be five readings of a volatile
+ * function, which can straddle a deadline mid-row and report `handed_off` beside
+ * a `server_time` that says otherwise.
+ *
+ * **This is a placeholder for CORE-003's `derived.ts` and is exported so that it
+ * can be deleted rather than diverge.** M1 must have exactly one implementation;
+ * when `derived.ts` lands, the integrator points {@link STORE_REPROJECTION} at
+ * it and asserts this constant is gone. A second, drifting copy of the state
+ * derivation is the defect this comment exists to make visible.
+ */
+export const M1_STATE_SQL = `case
+      when h.revoked_at is not null then 'revoked'
+      when h.released_at is not null then 'released'
+      when h.claimed_at is not null then 'claimed'
+      when h.handed_off_at is not null and t.now < h.claim_expires_at then 'handed_off'
+      when t.now < h.expires_at then 'live'
+      else 'expired'
+    end`;
+
+/**
+ * Where a replay reads current state from. A seam, so that the replay path and
+ * `get_hold` cannot answer differently about one `hold_id`.
+ */
+export interface Reprojector {
+  project(tx: Queryable, hold_id: string): Promise<TimeBearing | null>;
+}
+
+/** M1 against the `hold` row. Returns `null` where the Hold no longer exists. */
+export const STORE_REPROJECTION: Reprojector = {
+  async project(tx, hold_id) {
+    const result = await tx.query<{
+      server_time: string;
+      state: string;
+      expires_at: string;
+      claim_expires_at: string | null;
+      claim_spent: boolean;
+    }>(
+      `with t as (select clock_timestamp() as now)
+       select ${rfc3339Sql("t.now")}               as server_time,
+              ${M1_STATE_SQL}                      as state,
+              ${rfc3339Sql("h.expires_at")}        as expires_at,
+              ${rfc3339Sql("h.claim_expires_at")}  as claim_expires_at,
+              (h.claimed_at is not null
+                 or (h.claim_expires_at is not null and t.now >= h.claim_expires_at)) as claim_spent
+         from hold h, t
+        where h.hold_id = $1`,
+      [hold_id],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return null;
+    return {
+      server_time: row.server_time,
+      state: row.state as HoldState,
+      expires_at: row.expires_at,
+      claim_expires_at: row.claim_expires_at ?? undefined,
+      claim_spent: row.claim_spent === true,
+    };
+  },
+};
+
+/**
+ * Rebuild the stored document under I4: every member as stored, except the four
+ * that are re-read.
+ *
+ * `{ ...stored }` then reassigns the time-bearing members in place, so a member
+ * that was present stays where it was and a member that was absent stays absent.
+ *
+ * **On member order.** `record` is a `jsonb` column and `jsonb` does not preserve
+ * member order — Postgres normalises it on the way in. "Byte-identical" in I4 is
+ * therefore a claim about each member's *value*, which is what it says
+ * ("identical in every member"), and what `prove_idempotent.sh` asserts member by
+ * member. Whole-document string equality would be asserting a property of
+ * Postgres's jsonb ordering, not a property of this implementation.
+ */
+export function applyReprojection<T extends object>(
+  stored: T,
+  time_bearing: TimeBearing,
+  claim_consumed: boolean,
+): T {
+  const out = { ...(stored as Record<string, unknown>) };
+  out.server_time = time_bearing.server_time;
+  out.state = time_bearing.state;
+  out.expires_at = time_bearing.expires_at;
+
+  const handoff = out[HANDOFF_MEMBER];
+  if (handoff !== undefined && handoff !== null && typeof handoff === "object") {
+    if (claim_consumed) {
+      // I9: the one permitted departure from I4. `claim_url` is a credential
+      // (CL5) and a replay must not re-emit a spent one. `hold.schema.json`
+      // declares `claim_url` REQUIRED inside `handoff` with
+      // `additionalProperties: false`, so "claim_url absent" is only
+      // representable as the whole `handoff` object being absent.
+      delete out[HANDOFF_MEMBER];
+    } else {
+      out[HANDOFF_MEMBER] = {
+        ...(handoff as Record<string, unknown>),
+        claim_expires_at: time_bearing.claim_expires_at,
+      };
+    }
+  }
+  return out as T;
+}
