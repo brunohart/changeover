@@ -254,6 +254,7 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
   }
   checks.push(assert(true, "the store is node-postgres and reports concurrent=true", ""));
 
+  let vanished = false;
   try {
     /* ── Scenario 1 · the seats ─────────────────────────────────────────── */
 
@@ -476,15 +477,13 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
     // process's reset takes the Occasion, and every downstream symptom then
     // looks like a boundary failure. A missing Occasion is cannot-prove; a
     // missing row under a standing Occasion is a failure.
-    if (!(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)))) {
-      await b.close();
-      return { id: "C-ORPHAN", checks: [], notes, unprovable: ESTATE_VANISHED };
-    }
-    checks.push(broke("the scenario did not complete: " + message(err)));
+    vanished = !(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)));
+    if (!vanished) checks.push(broke("the scenario did not complete: " + message(err)));
   } finally {
     await b.close();
   }
 
+  if (vanished) return { id: "C-ORPHAN", checks: [], notes, unprovable: ESTATE_VANISHED };
   return { id: "C-ORPHAN", checks, notes };
 }
 
@@ -538,9 +537,11 @@ function sweeperChecks(absence: SweeperAbsence): Check[] {
       "pids still alive after SIGKILL: " + absence.living_pids.join(", "),
     ),
     assert(
-      absence.scheduled_resources.length === 0,
-      "no timer was scheduled in this process when the window opened: nothing here runs on a clock",
-      "scheduled work found in this process: " + absence.scheduled_resources.join(", "),
+      absence.recurring_timer_sources.length === 0,
+      "source scan — no module under packages/*/src registers a recurring timer, so there is no sweeper to " +
+        "switch off (the process's own active handles were " +
+        (absence.scheduled_resources.join(", ") || "none") + ", which is node-postgres's pool and not a reap)",
+      "a recurring timer is registered in: " + absence.recurring_timer_sources.join(", "),
     ),
     assert(
       absence.census_available && absence.reclaiming_backends.length === 0,

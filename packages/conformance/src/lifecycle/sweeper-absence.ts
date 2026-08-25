@@ -40,6 +40,10 @@
  * never heard of would still have to make a row disappear, and rows are counted.
  */
 
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import type { Queryable } from "@changeover/store/db.ts";
 import type { Counted } from "./bench.ts";
 import { RECLAIMS, occupancyOf, sleep } from "./bench.ts";
@@ -61,7 +65,26 @@ export interface SweeperAbsence {
   /** 2 — pids `process.kill(pid, 0)` reported gone, and any that answered. */
   readonly dead_pids: readonly number[];
   readonly living_pids: readonly number[];
-  /** 1b — scheduled work in this process at the instant the window opened. */
+  /**
+   * 1b — source files under `packages/<pkg>/src` that register recurring work.
+   *
+   * The **static** half of the call count, and the one that survives a window
+   * nothing happened to be scheduled in. A sweeper has to be written down
+   * somewhere before it can run.
+   */
+  readonly recurring_timer_sources: readonly string[];
+  /**
+   * Reported, never asserted, and the distinction is the point.
+   *
+   * The first version of this file asserted that no `Timeout` was active in the
+   * process, which passed under PGlite and failed the first time it met a real
+   * Postgres — because node-postgres arms an idle timer **per pooled client**.
+   * A pooled connection's idle timer is not a sweeper by any reading, so the
+   * assertion was false about the thing it claimed to observe. Deleting it would
+   * have been deleting an assertion to go green; what it needed was to be
+   * replaced by one that can carry the claim, which is
+   * {@link recurring_timer_sources} above.
+   */
   readonly scheduled_resources: readonly string[];
   /** 3 — backends seen that are neither this process's pool nor the dead client. */
   readonly foreign_backends: readonly BackendRow[];
@@ -95,6 +118,57 @@ export interface ObserveOptions {
  * absence — `EPERM` means the process exists and belongs to somebody else, which
  * is emphatically not what this needs to establish.
  */
+/**
+ * Every source file under `packages/<pkg>/src` that registers recurring work.
+ *
+ * `orphan-client.ts` is excluded by name and for one reason: its `setInterval`
+ * is how a client stays alive long enough to be `SIGKILL`ed, and it holds no
+ * connection to a reap. Every other hit would be a sweeper, or something close
+ * enough that the claim in this file would need re-stating before it could be
+ * made again.
+ */
+const EXEMPT: ReadonlySet<string> = new Set([
+  // Its `setInterval` is how a client stays alive long enough to be SIGKILLed.
+  "orphan-client.ts",
+  // This file, which contains the pattern as a pattern. A file that names a
+  // spelling is not a file that runs one — and a scanner that reported itself
+  // would report a sweeper on every run, which is a check nobody would read.
+  "sweeper-absence.ts",
+]);
+
+export function recurringTimerSources(): string[] {
+  const root = fileURLToPath(new URL("../../../..", import.meta.url));
+  const pattern = /setInterval\s*\(|node-cron|node-schedule/;
+  const found: string[] = [];
+
+  const walk = (dir: string): void => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (entry.name.endsWith(".ts") && !EXEMPT.has(entry.name)) {
+        if (pattern.test(readFileSync(path, "utf8"))) found.push(path.slice(root.length));
+      }
+    }
+  };
+
+  for (const pkg of safeReaddir(root + "packages")) walk(join(root + "packages", pkg, "src"));
+  return found.sort();
+}
+
+function safeReaddir(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
 export function pidIsGone(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -134,12 +208,12 @@ export async function observeSweeperAbsence(
 ): Promise<SweeperAbsence> {
   counter.clear();
 
-  // Sampled here, before this function creates a single timer of its own, so a
-  // `Timeout` in the list is somebody else's scheduled work and not the sleep on
-  // the next line.
+  // Sampled before this function creates a timer of its own. Reported only —
+  // see the field's own note for why it cannot be asserted on.
   const scheduled_resources = process
     .getActiveResourcesInfo()
     .filter((name) => name === "Timeout" || name === "Immediate");
+  const recurring_timer_sources = recurringTimerSources();
 
   const occupancy: Occupancy[] = [];
   const foreign: BackendRow[] = [];
@@ -194,6 +268,7 @@ export async function observeSweeperAbsence(
     reclaim_statements: counter.reclaims(),
     dead_pids,
     living_pids,
+    recurring_timer_sources,
     scheduled_resources,
     foreign_backends: foreign,
     reclaiming_backends: reclaiming,
