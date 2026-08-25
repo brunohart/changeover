@@ -186,9 +186,10 @@ async function resolveOne(
   for (const document of body.occasions ?? []) {
     state.occasions.set(String(document.occasion_id), document);
   }
+  const n = (body.occasions ?? []).length;
   beats.push({
     mark: "·",
-    text: `${exhibitor.venue_name} (${exhibitor.origin}) published ${(body.occasions ?? []).length} occasions`,
+    text: `${exhibitor.venue_name} (${exhibitor.origin}) published ${n} occasion${n === 1 ? "" : "s"}`,
   });
 }
 
@@ -210,11 +211,24 @@ async function reelResolve(state: RunState): Promise<Reel> {
   for (const member of result.members) {
     const document = documentOf(state, member.occasion_id);
     const offer = offerOf(document);
+    const manner = document.manner as Record<string, unknown>;
+    const access = (manner.accessibility ?? {}) as Record<string, unknown>;
+    const availability = document.availability as Record<string, unknown>;
     rows.push(
       `${venueOf(document)} · ${wallOf(document)} · ${classesOf(document)[0]} · ` +
         `${money(Number(offer.amount_minor ?? 0), String(offer.currency ?? "NZD"))}`,
     );
-    rows.push(`    distinguishing axes: ${member.distinguishing_axes.join(", ") || "(none)"}`);
+    rows.push(`    axes        ${member.distinguishing_axes.join(", ") || "(none)"}`);
+    // The axes are the protocol's answer and they are a union over every other
+    // candidate, so on a set this small they are the same list three times. The
+    // values underneath them are what a human is actually choosing between, and
+    // printing only the axis names would be the "distinguished, somehow" that
+    // §2.3 exists to replace.
+    rows.push(
+      `    reads as    open_captions ${String(access.open_captions)} · ` +
+        `${String(availability.mode) === "unknown" ? "availability unknown" : `${String(availability.seats_available)} seats free`}` +
+        `${member.supersedes.length === 0 ? "" : ` · supersedes ${member.supersedes.map((s) => s.occasion_id).join(", ")}`}`,
+    );
   }
   beats.push({
     mark: "·",
@@ -237,6 +251,12 @@ async function reelResolve(state: RunState): Promise<Reel> {
     text:
       "what the Agent does NOT say is \"the cheapest is NZD 12.00\". It says: here are the " +
       "options nothing else supersedes, and here is what makes each of them itself.",
+  });
+  beats.push({
+    mark: "·",
+    text:
+      "note that a surviving option is not a bookable one. The Whitcombe publishes no seat map, " +
+      "so it is an honest option with an unknown answer — reel 5 goes and asks.",
   });
 
   return {
@@ -411,6 +431,7 @@ async function reelSubstitutionRefused(state: RunState): Promise<Reel> {
   const sought = documentOf(state, NZ_OCCASION.kereru);
 
   const before = await seatRowsFor(state.bench.circuit.db, NZ_OCCASION.totara_4);
+  const held_elsewhere = await seatRowsFor(state.bench.circuit.db, NZ_OCCASION.kereru);
   const beats: Beat[] = [
     {
       mark: "·",
@@ -418,7 +439,15 @@ async function reelSubstitutionRefused(state: RunState): Promise<Reel> {
         "the Agent notices the same film is NZD 9.00 cheaper at 21:15 on a DCP, and routes the " +
         "customer onto it. `sought` still names the 35mm print, because that is what the human chose.",
     },
-    { mark: "#", text: `hold_seat rows for ${NZ_OCCASION.totara_4} before the call: ${before}` },
+    {
+      mark: "#",
+      // Both counts, because a zero on one showtime is only evidence if the same
+      // query returns a non-zero on another: an empty table and a broken
+      // predicate print the same digit.
+      text:
+        `hold_seat rows before — ${NZ_OCCASION.totara_4}: ${before} · ` +
+        `${NZ_OCCASION.kereru}: ${held_elsewhere} (reel 2's two seats, by the same query)`,
+    },
   ];
 
   const wire = await call(state.bench.circuit, "POST", "/changeover/v0/holds", {
@@ -432,9 +461,12 @@ async function reelSubstitutionRefused(state: RunState): Promise<Reel> {
   if (refusal !== null) beats.push(...refusalBeats(refusal));
 
   const after = await seatRowsFor(state.bench.circuit.db, NZ_OCCASION.totara_4);
+  const still_held = await seatRowsFor(state.bench.circuit.db, NZ_OCCASION.kereru);
   beats.push({
     mark: "#",
-    text: `hold_seat rows after: ${after} — asserted against the store, because the response would say the same either way`,
+    text:
+      `hold_seat rows after — ${NZ_OCCASION.totara_4}: ${after} · ${NZ_OCCASION.kereru}: ${still_held}. ` +
+      "Asserted against the store, because the response would read the same either way.",
   });
   beats.push({
     mark: "·",
