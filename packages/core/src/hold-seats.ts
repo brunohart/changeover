@@ -64,9 +64,10 @@ import { buildPoset, substitutionRefusal } from "@changeover/semantics/poset.ts"
 import { candidateFromOccasion } from "@changeover/semantics/antichain.ts";
 import { randomBytes } from "node:crypto";
 
-import type { G1Step, GuardName, HoldPolicyLimits } from "./guards.ts";
+import type { GuardName, HoldPolicyLimits } from "./guards.ts";
 import {
   G1,
+  G1_FIRST_WRITING_STEP,
   HOLD_POLICY_DEFAULTS,
   SEATS_WIRE_MAX,
   SEAT_ID_MAX_LENGTH,
@@ -677,13 +678,22 @@ const RUNNERS: Readonly<Record<GuardName, GuardRunner>> = {
     }
 
     try {
-      await q.query(
+      const inserted = await q.query(
         `insert into hold_seat (hold_id, occasion_id, showtime_id, seat_id, state, held_until)
          select h.hold_id, $2, $3, s, 'live', h.expires_at
            from hold h cross join unnest($4::text[]) as s
           where h.hold_id = $1`,
         [ctx.hold_id, held.occasion_id, held.showtime_id, ctx.seat_ids],
       );
+      // M2 makes the Hold report its seats for the life of the record, so a
+      // grant that wrote fewer rows than it promised is a Hold asserting
+      // occupancy it does not have. That is a fault, not a refusal: it must
+      // surface as a 500 and take the transaction with it.
+      if (inserted.rowCount !== ctx.seat_ids.length) {
+        throw new Error(
+          `hold_seats: granted ${ctx.seat_ids.length} seats and wrote ${inserted.rowCount} rows`,
+        );
+      }
     } catch (err) {
       // A 23505 here means a writer took one of these seats without taking its
       // lock — a non-conforming writer, or a defect. The seat set is the
@@ -772,7 +782,9 @@ export async function holdSeats(
 
     for (const step of G1) {
       if (step.phase === "request") continue;
-      if (step.step === FIRST_WRITING_STEP) await lockAndReap(ctx);
+      // L1: before ANY reap or insert, and therefore immediately before the
+      // first step G1 marks as writing — whichever step that becomes.
+      if (step.step === G1_FIRST_WRITING_STEP) await lockAndReap(ctx);
       await RUNNERS[step.name](ctx);
     }
 
@@ -803,9 +815,6 @@ export async function holdSeats(
     return held.cluster === null ? document : { ...document, cluster: held.cluster };
   }, { isolation: "read committed" });
 }
-
-/** The first step G1 marks as writing. Locks are taken immediately before it. */
-const FIRST_WRITING_STEP: number = (G1.find((step: G1Step) => step.writes) as G1Step).step;
 
 /* ── 9 · L1 and L2 — the locks, then the reap, then nothing else ───────────── */
 
