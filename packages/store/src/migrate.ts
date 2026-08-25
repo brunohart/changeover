@@ -296,6 +296,30 @@ function iso(d: Date): string {
  * that quietly emptied it would be the first crack in the property this
  * repository is asserting.
  */
+/**
+ * Empty the estate, so that a bench about to seed one owns every Occasion in
+ * the store.
+ *
+ * `seedEstate` upserts the Occasions it names and leaves every other row alone,
+ * which is right for a seeder and wrong for a bench that then asks a question
+ * about "the store". `resolve_occasions` with no filter answers with everything
+ * it has: against the fresh database PGlite hands out that is exactly the seeded
+ * estate, and against a durable Postgres it is also whatever the last script
+ * left. Measured 2026-08-25 — `occ_a` and `occ_b`, written by
+ * prove_access_log.sh on the same origin with a PARTIAL document, came back
+ * through both bindings and were refused by the Occasion schema for missing
+ * every required member. Two proofs reported a projection defect that was
+ * another script's fixture.
+ *
+ * `cascade` also empties the hold store: `hold.occasion_id` and
+ * `occasion_seat.occasion_id` both reference `occasion`, and a Hold is a claim
+ * on a seat at an Occasion, so it cannot outlive one. The access log is NOT
+ * touched, for the reason `resetHoldStore` gives.
+ */
+export async function resetEstate(db: Queryable): Promise<void> {
+  await db.exec("truncate table occasion, occasion_seat restart identity cascade");
+}
+
 export async function resetHoldStore(db: Queryable): Promise<void> {
   await db.exec("truncate table hold, hold_seat, hold_cluster, hold_slot, idempotency restart identity cascade");
 }
