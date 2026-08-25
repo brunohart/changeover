@@ -41,7 +41,6 @@ import type { Rfc3339 } from "@changeover/schema/scalars.ts";
 import { serverTime } from "@changeover/core/clock.ts";
 import { HOLD_COLUMNS } from "@changeover/core/derived.ts";
 import type { HoldRow } from "@changeover/core/derived.ts";
-import { availableSeatIds } from "@changeover/store/fixtures.ts";
 import type { ReferenceAdapter } from "./reference.ts";
 
 /* ── 1 · The shape of an outcome ───────────────────────────────────────────── */
@@ -441,7 +440,7 @@ async function runAuthz(adapter: ReferenceAdapter): Promise<readonly string[]> {
   const b = { agent_id: "agt_authz_b", principal_scope: "prn_authz_b" };
   const held: string[] = [];
 
-  const seats = availableSeatIds(house, 1);
+  const seats = await freeSeat(adapter, house.occasion_id);
   const hold = await adapter.holdSeats(
     {
       occasion_id: house.occasion_id,
@@ -502,6 +501,29 @@ async function runAuthz(adapter: ReferenceAdapter): Promise<readonly string[]> {
 
   await adapter.releaseHold(hold.hold_id, a);
   return held;
+}
+
+/**
+ * A seat that is free **right now**, asked of the store rather than of the seed.
+ *
+ * `availableSeatIds(seed, 1)` returns the exhibitor's first available seat,
+ * which is the right question for a fresh house and the wrong one for an
+ * adapter something else has already held against. A class that failed because
+ * an earlier caller took A:1 would be a class reporting a bug in its own setup
+ * as a bug in Z1.
+ */
+async function freeSeat(adapter: ReferenceAdapter, occasion_id: string): Promise<string[]> {
+  const r = await adapter.db.query<{ seat_id: string }>(
+    "select s.seat_id from occasion_seat s join occasion o on o.occasion_id = s.occasion_id" +
+      " where s.occasion_id = $1 and s.status = 'available'" +
+      " and not exists (select 1 from hold_seat hs where hs.showtime_id = o.showtime_id" +
+      "   and hs.seat_id = s.seat_id and hs.state in ('live','handed_off','claimed'))" +
+      " order by s.seat_id asc limit 1",
+    [occasion_id],
+  );
+  const seat_id = r.rows[0]?.seat_id;
+  if (seat_id === undefined) throw new Error(`C-AUTHZ: no free seat remains in ${occasion_id}`);
+  return [seat_id];
 }
 
 async function holdSnapshot(adapter: ReferenceAdapter, hold_id: string): Promise<HoldRow | null> {
