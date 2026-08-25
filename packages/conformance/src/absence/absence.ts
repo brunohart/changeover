@@ -21,8 +21,8 @@ import { readFileSync } from "node:fs";
 import { ROUTES } from "@changeover/http/routes.ts";
 import { TOOLS } from "@changeover/mcp/tools.ts";
 
-import type { Body } from "./bodies.ts";
-import { POISON, httpBodies, mcpBodies } from "./bodies.ts";
+import type { Body, SettlementCall } from "./bodies.ts";
+import { CAPABILITY_LABEL, POISON, httpBodies, mcpBodies } from "./bodies.ts";
 import type { Db } from "@changeover/store/db.ts";
 import { KILL_TESTS, nameHits, physicalNames, runKillTest } from "./grants.ts";
 import { DOCUMENT_SCHEMAS, declaredMembers, setEquality } from "./manifest.ts";
@@ -53,7 +53,7 @@ const broke = (clause: string, note: string): Clause => ({ clause, ok: false, no
 export function surfaceClauses(
   listedTools: readonly string[],
   settlementStatuses: readonly number[],
-  settlementToolBodies: readonly Body[],
+  settlementCalls: readonly SettlementCall[],
 ): Clause[] {
   const out: Clause[] = [];
 
@@ -97,11 +97,11 @@ export function surfaceClauses(
       : broke("C-ABSENCE.1/route_unreachable", `settlement-shaped paths answered [${settlementStatuses.join(", ")}]; every one must be 404`),
   );
 
-  const selectable = settlementToolBodies.filter((b) => !/protocol error/.test(b.label));
+  const answered = settlementCalls.filter((c) => !c.refused);
   out.push(
-    selectable.length === 0
-      ? held("C-ABSENCE.1/tool_uncallable", `all ${settlementToolBodies.length} settlement-named tools/call attempts were rejected at the protocol, not answered`)
-      : broke("C-ABSENCE.1/tool_uncallable", "a settlement-named tool was answered: " + selectable.map((b) => b.label).join(", ")),
+    answered.length === 0 && settlementCalls.length > 0
+      ? held("C-ABSENCE.1/tool_uncallable", `all ${settlementCalls.length} settlement-named tools/call attempts were refused and none carried structuredContent — the tool is absent, not disabled and not permission-checked`)
+      : broke("C-ABSENCE.1/tool_uncallable", "a settlement-named tool was answered: " + answered.map((c) => c.name + " (" + c.note + ")").join(", ")),
   );
 
   return out;
@@ -148,12 +148,17 @@ export async function grantClauses(db: Db): Promise<Clause[]> {
 
   for (const test of KILL_TESTS) {
     const outcome = await runKillTest(db, test);
+    const expected = test.expect === "42501" ? "42501 insufficient_privilege" : test.expect + " undefined_table";
     if (outcome.denied) {
-      out.push(held(`C-ABSENCE.3/${test.id}`, `denied to ${test.role} — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · ${test.why}`));
+      out.push(held(
+        `C-ABSENCE.3/${test.id}`,
+        `denied to ${test.role} — attempted under SET LOCAL ROLE, ${expected}` +
+          (test.expect_why ? ` (${test.expect_why})` : "") + ` · ${test.why}`,
+      ));
     } else if (outcome.allowed) {
       out.push(broke(`C-ABSENCE.3/${test.id}`, `PERMITTED to ${test.role} and rolled back — ${test.why}`));
     } else {
-      out.push(broke(`C-ABSENCE.3/${test.id}`, `raised [${outcome.sqlstate ?? "no SQLSTATE"}] where 42501 was due${outcome.note ? " — " + outcome.note : ""}`));
+      out.push(broke(`C-ABSENCE.3/${test.id}`, `raised [${outcome.sqlstate ?? "no SQLSTATE"}] where ${expected} was due${outcome.note ? " — " + outcome.note : ""}`));
     }
   }
 
@@ -230,10 +235,84 @@ const ECHO_FRAGMENTS = Object.freeze([
   POISON.pan,
 ]);
 
-export function canaryClauses(binding: string, bodies: readonly Body[]): Clause[] {
+/**
+ * The one value the canary accounts for instead of failing on, and the reason it
+ * is an assertion rather than a hole in the check.
+ *
+ * `usage_policy.contact` is **required** by `schemas/capability.schema.json` and
+ * is one of the manifest's 177 members. It is the exhibitor's own box-office
+ * address, published in a public bootstrap document that names no customer, and
+ * it exists so that a redistribution question has somewhere to go. Lock 4 as
+ * SPEC.md §5.1 words it — "no field value matches an email" — forbids a value
+ * the specification's own frozen schema requires. That tension is a specification
+ * defect and is reported as one; it is not resolved by deleting the check.
+ *
+ * So the exemption is made structurally and narrowly, and it is *more* work than
+ * failing would be. The capability body is re-parsed, exactly the member at
+ * `/usage_policy/contact` is removed, and the remainder must scan clean; the one
+ * removed value must be the only hit in the body; and it must equal the address
+ * the site configuration declares. An address that leaked into the capability
+ * document from anywhere else fails all three.
+ */
+export const EXEMPT_POINTER = "/usage_policy/contact";
+
+interface CapabilityScan {
+  readonly clause: Clause;
+  /** Hits that remain the canary's business after the contact member is removed. */
+  readonly residual: string[];
+}
+
+function scanCapability(body: Body, published: string): CapabilityScan {
+  const hits = valueHits(body.text);
+  let parsed: { usage_policy?: Record<string, unknown> } | null = null;
+  try {
+    parsed = JSON.parse(body.text) as { usage_policy?: Record<string, unknown> };
+  } catch {
+    parsed = null;
+  }
+  const contact = parsed?.usage_policy?.contact;
+  if (parsed === null || typeof contact !== "string") {
+    return {
+      clause: broke("C-ABSENCE.4/capability_contact", `the capability body carries no string at ${EXEMPT_POINTER}, so the canary cannot account for anything in it`),
+      residual: hits.map((h) => `${body.label}: ${h.kind}`),
+    };
+  }
+  delete parsed.usage_policy!.contact;
+  const residual = valueHits(JSON.stringify(parsed));
+  const accountedFor = hits.every((h) => contact.includes(h.match));
+
+  if (contact !== published) {
+    return {
+      clause: broke("C-ABSENCE.4/capability_contact", `the published contact and the served contact differ, so an address reached the wire that the exhibitor did not declare`),
+      residual: hits.map((h) => `${body.label}: ${h.kind}`),
+    };
+  }
+  if (residual.length > 0 || !accountedFor) {
+    return {
+      clause: broke("C-ABSENCE.4/capability_contact", `the capability body carries ${residual.length} personal-data hit(s) beyond the declared operator contact`),
+      residual: residual.map((h) => `${body.label}: ${h.kind} in ${JSON.stringify(h.match.slice(0, 6) + "…")}`),
+    };
+  }
+  return {
+    clause: held("C-ABSENCE.4/capability_contact", `the only email leaving the boundary is the operator address the capability document is REQUIRED to publish at ${EXEMPT_POINTER}; removing that one member leaves the body clean, and it equals the address the site declared (SPEC.md §5.1 Lock 4 and schemas/capability.schema.json disagree here — reported, not filtered)`),
+    residual: [],
+  };
+}
+
+export function canaryClauses(
+  binding: string,
+  bodies: readonly Body[],
+  publishedContact?: string,
+): Clause[] {
   const out: Clause[] = [];
   const dirty: string[] = [];
   for (const body of bodies) {
+    if (body.label === CAPABILITY_LABEL && publishedContact !== undefined) {
+      const scan = scanCapability(body, publishedContact);
+      out.push(scan.clause);
+      dirty.push(...scan.residual);
+      continue;
+    }
     for (const hit of valueHits(body.text)) {
       dirty.push(`${body.label}: ${hit.kind} in ${JSON.stringify(hit.match.slice(0, 6) + "…")}`);
     }
@@ -280,12 +359,11 @@ export async function runAbsence(db: Db, root: string): Promise<AbsenceRun> {
   const http = await httpBodies();
   const mcp = await mcpBodies();
 
-  const settlementTools = mcp.bodies.filter((b) => b.label.startsWith("tools/call "));
-  clauses.push(...surfaceClauses(mcp.tools, http.settlement, settlementTools));
+  clauses.push(...surfaceClauses(mcp.tools, http.settlement, mcp.settlementCalls));
   clauses.push(...manifestClauses(root));
   clauses.push(...(await grantClauses(db)));
   clauses.push(...canarySelfTest());
-  clauses.push(...canaryClauses("HTTP", http.bodies));
+  clauses.push(...canaryClauses("HTTP", http.bodies, http.operator_contact));
   clauses.push(...canaryClauses("MCP", mcp.bodies));
 
   return { clauses, http: http.bodies.length, mcp: mcp.bodies.length };
