@@ -243,6 +243,9 @@ export interface BenchOptions {
 export async function httpBench(options: BenchOptions = {}): Promise<HttpBench> {
   const db = await openDb();
   await migrate(db);
+  // Shared-store isolation: see the note in packages/core/test/lib/estate.ts.
+  // PGlite gives each script a fresh database; a real Postgres does not.
+  await resetHoldStore(db);
   await seedEstate(db, estate());
 
   const site = { ...siteConfig(options.profile ?? "1"), apex: options.apex ?? true };
