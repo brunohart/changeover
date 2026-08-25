@@ -73,6 +73,7 @@ export async function cIdempotent(options: IdempotentOptions = {}): Promise<Clas
     return { id: "C-IDEMPOTENT", checks: [], notes, unprovable: "the store did not answer: " + message(err) };
   }
 
+  let vanished = false;
   try {
     /* ── I4 · the replay, before and after the floor runs out ───────────── */
 
@@ -251,15 +252,13 @@ export async function cIdempotent(options: IdempotentOptions = {}): Promise<Clas
     // process's reset takes the Occasion, and every downstream symptom then
     // looks like a boundary failure. A missing Occasion is cannot-prove; a
     // missing row under a standing Occasion is a failure.
-    if (!(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)))) {
-      await b.close();
-      return { id: "C-IDEMPOTENT", checks: [], notes, unprovable: ESTATE_VANISHED };
-    }
-    checks.push(broke("the scenario did not complete: " + message(err)));
+    vanished = !(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)));
+    if (!vanished) checks.push(broke("the scenario did not complete: " + message(err)));
   } finally {
     await b.close();
   }
 
+  if (vanished) return { id: "C-IDEMPOTENT", checks: [], notes, unprovable: ESTATE_VANISHED };
   return { id: "C-IDEMPOTENT", checks, notes };
 }
 
