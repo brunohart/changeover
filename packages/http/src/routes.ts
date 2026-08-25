@@ -182,7 +182,24 @@ function matchOne(route: Route, parts: readonly string[]): Record<string, string
     const p = parts[i] as string;
     if (t.length > 2 && t.startsWith("{") && t.endsWith("}")) {
       if (p.length === 0) return null;
-      params[t.slice(1, -1)] = decodeURIComponent(p);
+      // `decodeURIComponent` throws URIError on a truncated escape — `%E0%A4%A`
+      // — and until 2026-08-26 that URIError propagated out of `lookup()` into
+      // the handler's catch-all and was rendered `503 upstream_unavailable`
+      // with `Retry-After: 5`. Three things followed from that, all reachable
+      // with no credential at all, because routing runs before `authorise()`
+      // and before the rate limiter: the Server published a false statement
+      // about the exhibitor's upstream; a conforming Agent, which is REQUIRED
+      // to act on `remediation`, retried a permanently malformed request every
+      // five seconds forever; and an unauthenticated caller drove unbounded
+      // stderr logging. A segment that is not a valid percent-encoding names no
+      // resource, and `404` is the truthful answer.
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(p);
+      } catch {
+        return null;
+      }
+      params[t.slice(1, -1)] = decoded;
       continue;
     }
     if (t !== p) return null;
