@@ -253,45 +253,68 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
     });
   }
 
-  /* 4 · X4 · the PROPORTIONAL half, on the 40-seat house. */
+  /* 4 · X4 · the PROPORTIONAL half, on the 40-seat house — and what shadows it. */
+  //
+  // Measured here rather than assumed, and the measurement is the finding: the
+  // per-principal fraction is 500bp = 5% and the platform fraction is 0.02 = 2%,
+  // so below the capacity at which `max_live_seats_per_showtime` caps the first
+  // one, the PLATFORM half is always the tighter number. On this house the
+  // per-principal fraction refuses a three-seat grab naming two, and the seat
+  // a customer actually cannot have is refused by X3 naming one. Both are
+  // printed, because a reader checking this Server against its own document
+  // needs to know which published number is the one that will refuse them.
   {
     await freshHolds(bench.db);
     const who = household("seats_small_seq");
     const absolute = policy.max_live_seats_per_showtime;
     const proportional = Math.floor((policy.max_held_seat_fraction_bp * SMALL_HOUSE) / 10000);
-    const ceiling = Math.max(1, Math.min(absolute, proportional));
+    const perPrincipal = Math.max(1, Math.min(absolute, proportional));
+    const perPlatform = Math.max(1, Math.floor(policy.max_held_fraction_per_showtime * SMALL_HOUSE));
+    const effective = Math.min(perPrincipal, perPlatform);
 
-    const over = await attempt(bench, "occ_seats_small", row("A", 1, ceiling + 1), who);
-    const exact = await attempt(bench, "occ_seats_small", row("A", 1, ceiling), who);
+    const over = await attempt(bench, "occ_seats_small", row("A", 1, perPrincipal + 1), who);
+    const shadowed = perPrincipal > perPlatform
+      ? await attempt(bench, "occ_seats_small", row("A", 1, perPlatform + 1), who)
+      : over;
+    const exact = await attempt(bench, "occ_seats_small", row("A", 1, effective), who);
     const more = await attempt(bench, "occ_seats_small", ["D:9"], who);
-    trials += 3;
+    trials += perPrincipal > perPlatform ? 4 : 3;
     const observed = await heldSeatsForPrincipal(bench.db, who, "occ_seats_small");
 
     checks.push(
       assert(
-        ceiling === proportional && ceiling < absolute,
-        `X4 · on a ${SMALL_HOUSE}-seat house the FRACTION binds first: ${policy.max_held_seat_fraction_bp}bp × ${SMALL_HOUSE} / 10000 = ${proportional}, below the absolute ${absolute}`,
+        perPrincipal === proportional && perPrincipal < absolute,
+        `X4 · on a ${SMALL_HOUSE}-seat house the FRACTION is the binding half of the per-principal min: ${policy.max_held_seat_fraction_bp}bp × ${SMALL_HOUSE} / 10000 = ${proportional}, below the absolute ${absolute}`,
         `X4 · the fraction gives ${proportional} and the absolute ${absolute}; the fraction is not the binding half here`,
       ),
     );
     checks.push(
       assert(
-        over.kind === "refusal" && over.code === "seat_budget_exhausted" && detailLimit(over) === ceiling,
-        `X4 · ${ceiling + 1} seats at once is 429 seat_budget_exhausted naming limit ${ceiling} — one credential cannot take the archival print`,
-        `X4 · ${ceiling + 1} seats ended as ${refusedWith(over)}`,
+        over.kind === "refusal" && over.code === "seat_budget_exhausted" && detailLimit(over) === perPrincipal,
+        `X4 · ${perPrincipal + 1} seats at once is 429 seat_budget_exhausted naming limit ${perPrincipal} — one credential cannot take the archival print`,
+        `X4 · ${perPrincipal + 1} seats ended as ${refusedWith(over)}`,
       ),
     );
     checks.push(
       assert(
-        exact.kind === "grant" && more.kind === "refusal" && observed === ceiling,
-        `X4 · ${ceiling} seats are granted, the next one is refused, and the principal holds exactly ${ceiling}`,
-        `X4 · ${exact.kind} then ${more.kind}, principal holding ${observed} seats`,
+        perPrincipal > perPlatform
+          ? shadowed.kind === "refusal" && detailLimit(shadowed) === perPlatform
+          : effective === perPrincipal,
+        `X3/X4 · ${perPlatform + 1} seats is refused naming limit ${perPlatform} — at ${policy.max_held_seat_fraction_bp}bp per principal against ${policy.max_held_fraction_per_showtime} per platform, the PLATFORM fraction is the tighter number on a small house and it is the one that refuses the customer`,
+        `X3/X4 · ${perPlatform + 1} seats ended as ${refusedWith(shadowed)}, expected the platform ceiling of ${perPlatform}`,
+      ),
+    );
+    checks.push(
+      assert(
+        exact.kind === "grant" && more.kind === "refusal" && observed === effective,
+        `X4 · min(per-principal ${perPrincipal}, per-platform ${perPlatform}) = ${effective} seat${effective === 1 ? " is" : "s are"} granted, the next one is refused, and the principal holds exactly ${effective}`,
+        `X4 · ${exact.kind} then ${more.kind}, principal holding ${observed} seats against an effective ceiling of ${effective}`,
       ),
     );
     checks.push(
       assert(
         (await holdRows(bench.db)) === 1,
-        "X4 · exactly one hold row exists — both refusals wrote nothing",
+        "X4 · exactly one hold row exists — every refusal above wrote nothing",
         `X4 · ${await holdRows(bench.db)} hold rows exist, expected 1`,
       ),
     );
@@ -299,11 +322,20 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
     observations.push({
       rule: "X4",
       member: "max_held_seat_fraction_bp",
-      published: `${statedAs(table, "max_held_seat_fraction_bp")}, binding as min(${absolute}, ${proportional}) = ${ceiling}`,
-      observed: `${observed} seats`,
+      published: `${statedAs(table, "max_held_seat_fraction_bp")}, binding as min(${absolute}, ${proportional}) = ${perPrincipal}`,
+      observed: `refuses at ${perPrincipal + 1}, shadowed above ${perPlatform}`,
       refused_with: refusedWith(over),
       concurrent: false,
       counting: `a principal's live held seats on one showtime, at a house of ${SMALL_HOUSE}`,
+    });
+    observations.push({
+      rule: "X3",
+      member: "max_held_fraction_per_showtime",
+      published: `${statedAs(table, "max_held_fraction_per_showtime")}, binding as max(1, ${policy.max_held_fraction_per_showtime} × ${SMALL_HOUSE}) = ${perPlatform}`,
+      observed: `${observed} seat${observed === 1 ? "" : "s"} held`,
+      refused_with: refusedWith(more),
+      concurrent: false,
+      counting: `the tighter of the two published fractions on a ${SMALL_HOUSE}-seat house, and therefore the one a customer meets`,
     });
   }
 
@@ -528,14 +560,21 @@ export async function concurrent(bench: Bench, table: PublishedTable): Promise<C
     });
   }
 
-  /* 4 · X4 · the fraction, raced on the small house. */
+  /* 4 · X3/X4 · the fractions, raced on the small house. */
+  //
+  // The effective ceiling here is the SMALLER of the two published fractions,
+  // and on a 40-seat house that is the platform one. Racing at the per-principal
+  // number would race at a ceiling this house never reaches, and the assertion
+  // would then be about arithmetic rather than about a lock.
   {
     await freshHolds(bench.db);
     const who = household("seats_small_race");
-    const ceiling = Math.max(
+    const perPrincipal = Math.max(
       1,
       Math.min(policy.max_live_seats_per_showtime, Math.floor((policy.max_held_seat_fraction_bp * SMALL_HOUSE) / 10000)),
     );
+    const perPlatform = Math.max(1, Math.floor(policy.max_held_fraction_per_showtime * SMALL_HOUSE));
+    const ceiling = Math.min(perPrincipal, perPlatform);
     const outcomes = await Promise.all([
       attempt(bench, "occ_seats_small", row("A", 1, ceiling), who),
       attempt(bench, "occ_seats_small", row("C", 1, ceiling), who),
@@ -546,26 +585,26 @@ export async function concurrent(bench: Bench, table: PublishedTable): Promise<C
     checks.push(
       assert(
         observed === ceiling && grants(outcomes) === 1,
-        `X4 · two SIMULTANEOUS holds on a ${SMALL_HOUSE}-seat house left ${observed} seats held, at a fraction ceiling of ${ceiling}`,
-        `X4 · ${observed} seats held on a ${SMALL_HOUSE}-seat house against a ceiling of ${ceiling}, from ${grants(outcomes)} grants`,
+        `X3/X4 · two SIMULTANEOUS ${ceiling}-seat holds on a ${SMALL_HOUSE}-seat house left ${observed} seat${observed === 1 ? "" : "s"} held, at an effective ceiling of min(${perPrincipal}, ${perPlatform}) = ${ceiling}`,
+        `X3/X4 · ${observed} seats held on a ${SMALL_HOUSE}-seat house against a ceiling of ${ceiling}, from ${grants(outcomes)} grants`,
       ),
     );
     checks.push(
       assert(
         faults(outcomes).length === 0,
-        "X4 · neither racer faulted on the small house",
-        `X4 · faults: ${faultText(outcomes)}`,
+        "X3/X4 · neither racer faulted on the small house",
+        `X3/X4 · faults: ${faultText(outcomes)}`,
       ),
     );
 
     observations.push({
-      rule: "X4",
-      member: "max_held_seat_fraction_bp",
-      published: `${statedAs(table, "max_held_seat_fraction_bp")} (= ${ceiling} at a ${SMALL_HOUSE}-seat house)`,
-      observed: `${observed} seats from 2 simultaneous callers`,
+      rule: "X3/X4",
+      member: "max_held_seat_fraction_bp · max_held_fraction_per_showtime",
+      published: `min(${perPrincipal}, ${perPlatform}) = ${ceiling} at a ${SMALL_HOUSE}-seat house`,
+      observed: `${observed} seat${observed === 1 ? "" : "s"} from 2 simultaneous callers`,
       refused_with: refusedWith(outcomes.find((o) => o.kind === "refusal")),
       concurrent: true,
-      counting: "a principal's live held seats on one small-house showtime, where the fraction is the binding half",
+      counting: "the tighter of the two published fractions on a small-house showtime, counted under its advisory lock",
     });
   }
 
