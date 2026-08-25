@@ -180,7 +180,12 @@ try {
     console.log("    bash scripts/prove_claim_confirm_race.sh");
     console.log(`PASS=${fail ? 0 : pass}`);
     await b.close();
-    process.exit(EXIT_CANNOT_PROVE);
+    // 1 beats 2. Sections 1 and 2 are six sequential CL2/R3 assertions that run
+    // on EVERY substrate, and `bad()` sets `fail` without throwing. Exiting 2
+    // unguarded here would file every one of those failures as "cannot prove"
+    // on the one path CI actually takes, because CHANGEOVER_PG_URL is unset
+    // there on every single run.
+    process.exit(fail ? 1 : EXIT_CANNOT_PROVE);
   }
   bad("unexpected — " + (err && err.message ? err.message : String(err)));
 } finally {

@@ -100,7 +100,7 @@ try {
     console.log("cannot prove — CHANGEOVER_PG_URL is set but openDb returned the " + db.driver + " driver");
     console.log(`PASS=${fail ? 0 : pass}`);
     await db.close();
-    process.exit(EXIT_CANNOT_PROVE);
+    process.exit(fail ? 1 : EXIT_CANNOT_PROVE);
   }
 
   const level = (await db.query("show default_transaction_isolation")).rows[0];
@@ -114,7 +114,7 @@ try {
     remedy(err.message);
     console.log(`PASS=${fail ? 0 : pass}`);
     await db.close();
-    process.exit(EXIT_CANNOT_PROVE);
+    process.exit(fail ? 1 : EXIT_CANNOT_PROVE);
   }
   // "We could not reach your server" is never "your server violated the floor".
   // The container this suite runs against is started with --rm; when it goes
@@ -124,7 +124,10 @@ try {
     remedy(err instanceof ServerVanished ? err.message : "the store stopped answering: " + String(err && err.message ? err.message : err));
     console.log(`PASS=${fail ? 0 : pass}`);
     await db.close().catch(() => {});
-    process.exit(EXIT_CANNOT_PROVE);
+    // .3 and .4 ran and recorded above without throwing. A confirmed oversell
+    // is not filed as an infrastructure hiccup just because the container went
+    // away afterwards.
+    process.exit(fail ? 1 : EXIT_CANNOT_PROVE);
   }
   report.bad("unexpected — " + String(err && err.stack ? err.stack.split("\n").slice(0, 5).join(" | ") : err));
 } finally {

@@ -84,7 +84,8 @@ if (unreachable !== null) {
   console.log("cannot prove — " + unreachable.message);
   console.log("  to make it provable:");
   for (const line of unreachable.remedy.split("\n")) console.log("    " + line);
-  process.exit(EXIT_CANNOT_PROVE);
+  console.log("PASS=" + (fail ? 0 : pass));
+  process.exit(fail ? 1 : EXIT_CANNOT_PROVE);
 }
 
 if (pass < 20 && !fail) bad("only " + pass + " assertions ran; the proof did not reach the end");
