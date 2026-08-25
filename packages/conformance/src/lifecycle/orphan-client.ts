@@ -21,6 +21,9 @@
  * read as a boundary defect rather than as the harness defect it is.
  */
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { openDb } from "@changeover/store/db.ts";
 import { holdSeats } from "@changeover/core/hold-seats.ts";
 import { principalBudgets, HOLD_POLICY_PUBLISHED } from "@changeover/core/budgets.ts";
@@ -84,7 +87,23 @@ async function main(): Promise<void> {
   setInterval(() => {}, 3_600_000);
 }
 
-main().catch((err) => {
-  process.stderr.write("orphan-client: " + String(err && (err as Error).stack ? (err as Error).stack : err) + "\n");
-  process.exit(1);
-});
+/**
+ * The entry guard, and it is load-bearing rather than tidy.
+ *
+ * `c-orphan.ts` imports {@link READY_PREFIX} from this module so that the parent
+ * and the child cannot drift on the handshake — and an ES module import
+ * *executes the module*. Without this line, importing one string started a
+ * second client inside the harness process, with no argv, which failed on the
+ * spread of `config.seats` and took the whole proof down before its first
+ * assertion printed. Found 2026-08-25, at the first run of the script.
+ */
+const invoked_directly =
+  typeof process.argv[1] === "string" &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+
+if (invoked_directly) {
+  main().catch((err) => {
+    process.stderr.write("orphan-client: " + String(err && (err as Error).stack ? (err as Error).stack : err) + "\n");
+    process.exit(1);
+  });
+}
