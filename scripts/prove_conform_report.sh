@@ -471,6 +471,20 @@ for (const name of ["floor_violations", "operator_overrides", "oversell_events"]
 }
 ok("every count carries its basis, and a count that was not taken is null rather than 0 — a zero meaning \"we did not look\" and a zero meaning \"we looked and there were none\" are the same byte, and the second is the finding worth publishing");
 
+// The cohort is stated as DISTINCT Holds over attempted, so that a cohort which
+// silently shrank is visible. It shrank twice while this was being written, and
+// both were the runner'"'"'s fault rather than the boundary'"'"'s: `key()` truncates its
+// Idempotency-Key seed at 32 characters, so a long label pushed the seat ids off
+// the end and I1 correctly replayed ONE Hold six times; and a cohort larger than
+// the published per-principal ceiling is a cohort the boundary is right to
+// refuse. Zero violations over four Holds and zero over one are the same number
+// and not the same observation, and only one of them is worth publishing.
+const cohortNote = String(report.floor_violations.note ?? "");
+const cohortMatch = /granted (\d+) distinct Holds of (\d+) attempted/.exec(cohortNote);
+cohortMatch !== null && cohortMatch[1] === cohortMatch[2] && Number(cohortMatch[1]) > 0
+  ? ok("the floor observation states its cohort as DISTINCT Holds over attempted (" + cohortMatch[0] + ") and the two agree — counting 201s instead would count one replayed Hold as many")
+  : bad("the floor observation'"'"'s cohort is " + JSON.stringify(cohortNote.slice(0, 200)) + ", and a run whose cohort shrank cannot be told from one that did not");
+
 const latency = report.release_latency_ms;
 latency.basis === "observed"
   ? (typeof latency.value.substrate === "string" && latency.value.substrate.length > 0
