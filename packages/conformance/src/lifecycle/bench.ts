@@ -251,6 +251,37 @@ export async function expiredInStore(q: Queryable, hold_id: string): Promise<boo
   return r.rows[0]?.past === true;
 }
 
+/**
+ * Is the estate this bench seeded still the estate the store holds?
+ *
+ * §12's defect class, caught rather than mis-reported. A real Postgres at
+ * `CHANGEOVER_PG_URL` is ONE database, and everything in this repository resets
+ * the hold store at bench setup — so a second process starting up mid-run
+ * truncates `occasion`, which cascades to `hold`, which cascades to
+ * `idempotency`. What that looks like from inside an assertion is a replay that
+ * executed, or a Hold whose seat rows have vanished with nobody contending: the
+ * two most alarming failures this file could report, and neither of them true.
+ *
+ * The distinction is sharp and worth making rather than papering over. A sweeper
+ * deletes `hold_seat` or `hold_slot` rows and leaves the `hold` row and the
+ * Occasion standing. A foreign reset takes the **Occasion** with it. So a missing
+ * Occasion is *cannot prove*, and a missing seat row under a standing Occasion is
+ * a failure — which is exactly the right way round.
+ */
+export async function estateIntact(q: Queryable, occasion_ids: readonly string[]): Promise<boolean> {
+  const r = await q.query<{ n: string }>(
+    "select count(*)::text as n from occasion where occasion_id = any($1::text[])",
+    [[...occasion_ids]],
+  );
+  return Number(r.rows[0]?.n ?? 0) === occasion_ids.length;
+}
+
+/** The message every class prints when {@link estateIntact} says otherwise. */
+export const ESTATE_VANISHED =
+  "the estate this run seeded was truncated by another process on the shared store at " +
+  "CHANGEOVER_PG_URL before the assertions finished — a Hold cannot be observed surviving a " +
+  "database that no longer contains its Occasion. Re-run with the store to yourself.";
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);

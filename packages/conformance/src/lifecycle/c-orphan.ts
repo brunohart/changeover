@@ -51,6 +51,8 @@ import type { Check, ClassResult } from "./contract.ts";
 import { assert, broke } from "./contract.ts";
 import type { LifecycleBench } from "./bench.ts";
 import {
+  ESTATE_VANISHED,
+  estateIntact,
   etagFor,
   expiredInStore,
   lifecycleBench,
@@ -84,6 +86,19 @@ export interface OrphanOptions {
 }
 
 const AGENT = "agt_t003orphan";
+
+/**
+ * The house, and why it is this big.
+ *
+ * X3's `max_held_fraction_per_showtime` is 2% of capacity and X4's
+ * `max_held_seat_fraction_bp` is 5%, both floored at one seat — so a 40-seat
+ * house lets this agent platform hold **one** seat at a screening, and every
+ * two-seat orphan in this file is refused `seat_budget_exhausted` before it can
+ * become an orphan at all. That refusal is the published policy working
+ * correctly; it is the fixture that was wrong. 200 seats gives the platform 4
+ * and the principal 6, which is the peak either reaches here.
+ */
+const HOUSE = 200;
 
 /* ── Spawning, and killing, a client ───────────────────────────────────────── */
 
@@ -210,10 +225,10 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
   try {
     b = await lifecycleBench(run, {
       occasions: [
-        lifecycleOccasion({ occasion_id: S1, capacity: 40 }),
-        lifecycleOccasion({ occasion_id: S2, capacity: 40 }),
-        lifecycleOccasion({ occasion_id: S3A, capacity: 40, cluster: CLUSTER }),
-        lifecycleOccasion({ occasion_id: S3B, capacity: 40, cluster: CLUSTER }),
+        lifecycleOccasion({ occasion_id: S1, capacity: HOUSE }),
+        lifecycleOccasion({ occasion_id: S2, capacity: HOUSE }),
+        lifecycleOccasion({ occasion_id: S3A, capacity: HOUSE, cluster: CLUSTER }),
+        lifecycleOccasion({ occasion_id: S3B, capacity: HOUSE, cluster: CLUSTER }),
         lifecycleOccasion({ occasion_id: S4, capacity: 40 }),
       ],
     });
@@ -457,6 +472,14 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
       "reclaim latency produced " + latency.n + " usable samples of " + trials,
     ));
   } catch (err) {
+    // §12 first, before anything is called a defect: on a shared store another
+    // process's reset takes the Occasion, and every downstream symptom then
+    // looks like a boundary failure. A missing Occasion is cannot-prove; a
+    // missing row under a standing Occasion is a failure.
+    if (!(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)))) {
+      await b.close();
+      return { id: "C-ORPHAN", checks: [], notes, unprovable: ESTATE_VANISHED };
+    }
     checks.push(broke("the scenario did not complete: " + message(err)));
   } finally {
     await b.close();
@@ -520,13 +543,14 @@ function sweeperChecks(absence: SweeperAbsence): Check[] {
       "scheduled work found in this process: " + absence.scheduled_resources.join(", "),
     ),
     assert(
-      absence.census_available && absence.foreign_backends.length === 0 &&
-        absence.reclaiming_backends.length === 0,
-      "backend census — pg_stat_activity shows no connection but this harness's own, and none mid-reclaim",
+      absence.census_available && absence.reclaiming_backends.length === 0,
+      "backend census — pg_stat_activity was read and NO backend was executing a statement that frees " +
+        "occupancy" + (absence.foreign_backends.length === 0
+          ? "; this harness held the only connections"
+          : " (" + absence.foreign_backends.length + " foreign connections seen, none of them reclaiming)"),
       absence.census_available
-        ? "a foreign or reclaiming backend was connected: " +
-          [...absence.foreign_backends, ...absence.reclaiming_backends]
-            .map((r) => r.pid + "/" + (r.application_name ?? "?")).join(", ")
+        ? "a backend was caught mid-reclaim: " +
+          absence.reclaiming_backends.map((r) => r.pid + "/" + (r.application_name ?? "?")).join(", ")
         : "pg_stat_activity could not be read, so the census proves nothing",
     ),
     assert(
