@@ -81,12 +81,19 @@ export interface DocumentOptions {
 }
 
 /**
- * One published Occasion. Capacity is small on purpose: PGlite seeds every seat
- * row, and 754 of them twice per test is a minute of nothing.
+ * One published Occasion.
+ *
+ * Capacity is 300 rather than the golden fixture's 754 (PGlite seeds every seat
+ * row) and rather than something tiny, because the published ceilings are
+ * **proportions**: X4's principal ceiling is `capacity x 500 / 10000` and X3's
+ * platform ceiling is `capacity x 0.02`. On a forty-seat house those are one
+ * seat and one seat, so an ordinary two-seat hold is `429 seat_budget_exhausted`
+ * and every test below would be asserting against a refusal. 300 seats puts both
+ * ceilings at six, which is where §2.5's own absolute numbers sit.
  */
 export function occasionDocument(options: DocumentOptions): Record<string, unknown> {
   const document = golden();
-  const capacity = options.capacity ?? 40;
+  const capacity = options.capacity ?? 300;
   const instant = futureInstant(options.days_ahead);
 
   document.occasion_id = options.occasion_id;
