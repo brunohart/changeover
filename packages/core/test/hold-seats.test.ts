@@ -52,11 +52,11 @@ function request(overrides: Partial<HoldSeatsRequest> & { occasion_id?: string }
   };
 }
 
-async function refusalFrom(fn: () => Promise<unknown>): Promise<{ code: RefusalCode; detail?: unknown }> {
+async function refusalFrom(fn: () => Promise<unknown>): Promise<{ code: RefusalCode; detail?: unknown; reason: string }> {
   try {
     await fn();
   } catch (err) {
-    if (isRefusal(err)) return { code: err.code, detail: err.detail };
+    if (isRefusal(err)) return { code: err.code, detail: err.detail, reason: err.reason };
     throw err;
   }
   throw new Error("expected a refusal and the call succeeded");
@@ -244,13 +244,43 @@ test("a duplicate-bearing seats array is refused before any lock, never as seat_
   }
 });
 
-test("an unknown seat names itself and writes zero rows, valid seats included", async () => {
+test("an unknown seat is counted, never echoed, and writes zero rows — valid seats included", async () => {
   const b = await bench(estate());
   try {
     const refusal = await refusalFrom(() => holdSeats(b.db, request({ seats: ["A:1", "ZZ:99"] }), AGENT));
     assert.equal(refusal.code, "unknown_seat");
-    assert.deepEqual((refusal.detail as { seat_ids: string[] }).seat_ids, ["ZZ:99"]);
+    // This test asserted `seat_ids: ["ZZ:99"]` until 2026-08-26 — the defect,
+    // written down as an expectation. `unknown_seat` is reached ONLY by ids the
+    // auditorium does not carry, which is to say ids the caller invented: up to
+    // twelve of them, up to 64 characters each, returned inside a structured
+    // member an agent is expected to render. PR3 forbids passing caller text
+    // into a refusal without re-typing it to a code, and the count IS the
+    // re-typing. `remediation: re_resolve` is identical either way — the agent
+    // has the seat map.
+    assert.deepEqual((refusal.detail as { seat_ids: string[] }).seat_ids, []);
+    assert.match(
+      refusal.reason,
+      /One of the seat identifiers/,
+      "the count reaches the caller as server-authored prose",
+    );
     assert.equal(totalRows(await rowCounts(b.db)), 0, "C-ATOMIC.4: one valid + one invalid writes zero rows");
+  } finally {
+    await b.close();
+  }
+});
+
+test("an intent_digest that is not D3's shape is refused before any Hold exists", async () => {
+  const b = await bench(estate());
+  try {
+    // D3 holds "in both bindings", so it is enforced in core where both inherit
+    // it. §6.2 names this exact value as its worked failure: a Server accepting
+    // "sarah.chen@gmail.com" and echoing it emitted a Hold failing its own
+    // schema. Until 2026-08-26 the HTTP binding granted it.
+    for (const bad of ["sarah.chen@gmail.com", "abc", "x".repeat(44)]) {
+      const refusal = await refusalFrom(() => holdSeats(b.db, request({ intent_digest: bad }), AGENT));
+      assert.equal(refusal.code, "schema_validation", bad);
+    }
+    assert.equal(totalRows(await rowCounts(b.db)), 0, "and nothing was written on the way to any of them");
   } finally {
     await b.close();
   }
@@ -616,8 +646,15 @@ test("I3's decision members exclude intent_digest and sort the seats", () => {
 test("a granted Hold never carries the intent digest it was given", async () => {
   const b = await bench(estate());
   try {
-    const hold = await holdSeats(b.db, request({ intent_digest: "sha256:the-customer-said-so" }), AGENT);
-    assert.equal(JSON.stringify(hold).includes("the-customer-said-so"), false, "D4");
+    // A well-formed digest, because D3 now refuses anything else before the
+    // grant runs at all. The property under test is D4 — that a VALID digest is
+    // still absent from the document — and a malformed one could no longer
+    // reach the code that would have echoed it.
+    const digest = "theCustomerSaidSo-0123456789abcdefghijklmno";
+    assert.equal(digest.length, 43);
+    const hold = await holdSeats(b.db, request({ intent_digest: digest }), AGENT);
+    assert.equal(JSON.stringify(hold).includes(digest), false, "D4");
+    assert.equal(JSON.stringify(hold).includes("intent_digest"), false, "D4: not even the member name");
   } finally {
     await b.close();
   }
