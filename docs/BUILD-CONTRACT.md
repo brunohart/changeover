@@ -354,9 +354,15 @@ Rules, all of them load-bearing:
 
 ### Registering a proof
 
-`scripts/run_proofs.sh` carries a literal `PROOFS=(…)` array. **Only the integrator edits it.** Write your script, verify it standalone, and name it in your return — the integrator adds it at the gate. Do not edit `run_proofs.sh`; do not add your script by hand.
+**There is nothing to register.** `scripts/run_proofs.sh` **discovers** `scripts/prove_*.sh` with `find … | sort`. Dropping your script into `scripts/` puts it in the suite on the next run — no array to edit, no shared registry file for twenty-five authors to contend on, and no way to write a proof and then forget to wire it up. A proof that is broken on arrival turns the suite red immediately, which is the point.
 
-The five root-commit proofs currently pass: `PASS=5 FAIL=0 UNPROVABLE=0`, exit `0`. **They must still exit 0 when you are done.** Run `npm run proofs` before you return.
+The corollary is that a half-written proof in `scripts/` is already gating everyone. Verify it standalone before you leave it there.
+
+**Do not edit `run_proofs.sh`** — it is the integrator's, and there is now no reason to want to.
+
+The five root-commit proofs must still exit 0 when you are done: `prove_spec_first`, `prove_spec_examples`, `prove_etag_golden`, `prove_member_manifest`, `prove_no_settlement_verb`. Run `npm run check` before you return — it is `typecheck && test && proofs`, and the first two catch a broken seam in seconds where the third catches it in a stack trace.
+
+*Measured at the Gate 1 integration, 2026-08-25:* `npm run check` → tsc exit 0 · `node --test` 328 pass / 0 fail · `run_proofs.sh` PASS=19 FAIL=0 UNPROVABLE=4, exit 2. The four unprovable are `prove_lock_order`, `prove_idempotent_race`, `prove_no_fanout_concurrent` and `prove_migrations_pg` — every one of them concurrency-gated on `CHANGEOVER_PG_URL`, and every one correct to exit 2 here.
 
 ---
 
