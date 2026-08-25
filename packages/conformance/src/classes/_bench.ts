@@ -39,6 +39,8 @@ import type { Estate, OccasionSeed, SeatSeed } from "@changeover/store/fixtures.
 import { occasionSeedFromDocument, seatGrid, seedEstate } from "@changeover/store/fixtures.ts";
 import type { RefusalCode } from "@changeover/schema/refusal.ts";
 
+import { HOLD_POLICY_PUBLISHED } from "@changeover/core/budgets.ts";
+import { warrantedPolicy } from "@changeover/adapter-reference/capability.ts";
 import { createServer } from "@changeover/http/server.ts";
 import type { AccessLog, ServerOptions } from "@changeover/http/server.ts";
 import { tokenDirectory } from "@changeover/http/credential.ts";
@@ -407,6 +409,40 @@ export const TOKENS = tokenDirectory({
 export const CLAIM_SECRET = "conformance-claim-secret-not-a-credential";
 export const READ_TOKEN_SECRET = "conformance-read-token-secret-not-a-credential";
 
+/**
+ * The retention measurement this Server warrants its floor against.
+ *
+ * Hoisted to one object because two things must be derived from it and derived
+ * from the SAME one: the `floor_evidence` the capability document publishes, and
+ * the `policy_max_floor_ms` it publishes beside it. `warrantableFloorMs` of this
+ * evidence is 270000ms, which is **below** the 300000ms ceiling
+ * `HOLD_POLICY_PUBLISHED` carries — so a site that published the default
+ * unchanged would advertise, and grant, a floor 30 seconds longer than anything
+ * it has measured. Measured on this bench before the clamp below existed:
+ * `requested_floor_ms: 300000` was granted in full.
+ */
+export const FLOOR_EVIDENCE = Object.freeze({
+  observations: 24,
+  window_start: "2026-08-01T00:00:00+12:00",
+  window_end: "2026-08-25T00:00:00+12:00",
+  min_observed_retention_ms: 300000,
+  safety_margin_ms: 30000,
+  violations: 0,
+});
+
+/**
+ * The published ceiling, clamped once to what {@link FLOOR_EVIDENCE} warrants.
+ *
+ * The same move DEMO-001's bench makes and for the same reason: the enforced
+ * policy IS the published policy, so §2.5's *"a Server MUST NOT enforce a limit
+ * it has not published"* and §7's *"a Server MUST NOT grant a floor it has not
+ * measured"* are both structural rather than promised. C-FLOOR asserts the
+ * result and carries the unclamped default as its negative control, so a bench
+ * that stopped clamping turns that class red rather than quietly warranting
+ * nothing.
+ */
+export const HOLD_POLICY_WARRANTED = warrantedPolicy(HOLD_POLICY_PUBLISHED, FLOOR_EVIDENCE);
+
 export function siteConfig(profile: "0" | "1" | "1S"): SiteConfig {
   return {
     site_id: SITE_ID,
@@ -425,14 +461,8 @@ export function siteConfig(profile: "0" | "1" | "1S"): SiteConfig {
     claim_binding: "deep_link",
     hold_basis: "system_of_record",
     floor_basis: "owned_store",
-    floor_evidence: {
-      observations: 24,
-      window_start: "2026-08-01T00:00:00+12:00",
-      window_end: "2026-08-25T00:00:00+12:00",
-      min_observed_retention_ms: 300000,
-      safety_margin_ms: 30000,
-      violations: 0,
-    },
+    hold_policy: HOLD_POLICY_WARRANTED,
+    floor_evidence: FLOOR_EVIDENCE,
     usage_policy: {
       redistribution: "forbidden",
       cache_max_age_ms: 30000,
