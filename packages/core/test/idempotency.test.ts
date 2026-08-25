@@ -466,13 +466,17 @@ async function handedOff(seat: string, claim_window: "open" | "closed") {
   const hold = await holdSeats(b.db, request({ seats: [seat] }), CREDENTIAL);
   const shift = claim_window === "open" ? "+ interval '5 minutes'" : "- interval '10 minutes'";
   const row = await b.db.query<{ handed_off_at: string; claim_expires_at: string }>(
+    // ONE read of the clock, joined in and used six times. Two reads feeding
+    // granted_at and floor_deadline land in two different microseconds, and
+    // hold_floor_derived requires floor_deadline = granted_at + floor_ms exactly.
     `update hold
-        set granted_at        = clock_timestamp() ${claim_window === "open" ? "" : "- interval '20 minutes'"},
-            floor_deadline    = clock_timestamp() ${claim_window === "open" ? "" : "- interval '20 minutes'"} + (floor_ms * interval '1 millisecond'),
-            expires_at        = clock_timestamp() ${shift},
-            handed_off_at     = clock_timestamp() - interval '1 minute',
+        set granted_at        = t.g ${claim_window === "open" ? "" : "- interval '20 minutes'"},
+            floor_deadline    = t.g ${claim_window === "open" ? "" : "- interval '20 minutes'"} + (floor_ms * interval '1 millisecond'),
+            expires_at        = t.g ${shift},
+            handed_off_at     = t.g - interval '1 minute',
             handoff_floor_ms  = 180000,
-            claim_expires_at  = clock_timestamp() ${shift}
+            claim_expires_at  = t.g ${shift}
+       from (select clock_timestamp() as g) t
       where hold_id = $1
       returning to_json(handed_off_at)#>>'{}' as handed_off_at,
                 to_json(claim_expires_at)#>>'{}' as claim_expires_at`,
