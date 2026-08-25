@@ -75,8 +75,20 @@ ok(`section 2.5 parsed from ${SPEC_PATH.split("/").slice(-1)[0]}: ${table.size} 
 // so two proofs against one database delete each others fixtures. Measured: one
 // run in three came back with every grant refused occasion_not_found.
 const base = process.env.CHANGEOVER_PG_URL;
-const url = base ? await privateBenchUrl(base, "changeover_budget_bench") : undefined;
-const db = await openDb(url ? { url } : {});
+let db, url;
+try {
+  url = base ? await privateBenchUrl(base, "changeover_budget_bench") : undefined;
+  db = await openDb(url ? { url } : {});
+  await db.query("select 1");
+} catch (err) {
+  // A configured server that does not answer is a thing we could not reach, not
+  // a boundary that misbehaved. Exit 2, never 1.
+  console.log("cannot prove — CHANGEOVER_PG_URL is set and the server did not answer: " +
+    String(err && err.message ? err.message : err));
+  console.log("  to make it provable: start it, or unset CHANGEOVER_PG_URL to run against PGlite");
+  if (db) await db.close().catch(() => {});
+  process.exit(2);
+}
 if (url) ok(`the bench holds its own database on the configured server: ${new URL(url).pathname.slice(1)}`);
 const observations = [];
 let trials = 0;
