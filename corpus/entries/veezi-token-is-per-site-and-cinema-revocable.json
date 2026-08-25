@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "veezi-token-is-per-site-and-cinema-revocable",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Veezi API, Authentication",
+    "tier": "smb_cms",
+    "doc_root": "https://api.us.veezi.com/help",
+    "endpoint": "VeeziAccessToken header"
+  },
+  "behaviour": {
+    "summary": "Access is a single custom header token that the cinema generates in its own back office and can cancel at any time, scoped to one site, with no query-string alternative. The exhibitor is the issuer and the revoker; there is no platform-level developer credential standing between them and the caller.",
+    "testable_as": "The published Authentication page names one header, states cinema-side issuance and cancellation, and explicitly refuses a query-string form of the same token.",
+    "consequence_for_agents": "Delegation at this tier is already exhibitor-controlled and revocable, which is the right shape and the wrong granularity: one token is all-or-nothing for a whole site, and revocation is the only lever. CHANGEOVER keeps issuance with the exhibitor and adds the granularity — a principal, a scope, and refusals that name which of the two is missing.",
+    "spec_rules": ["Z1", "O2"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 270,
+  "half_life_basis": "An authentication model is a product decision that outlives releases; and this one is corroborated by the live 403 recorded in veezi-session-refused-without-site-token. Nine months.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://api.us.veezi.com/help/Authentication",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "Please note that you can't pass the access token as a query string... you will receive a 403 Forbidden HTTP reposonse.",
+    "locator": "Authentication"
+  },
+  "notes": "The misspelling in the quoted text is the source's, preserved because a quote that has been tidied is no longer a quote."
+}

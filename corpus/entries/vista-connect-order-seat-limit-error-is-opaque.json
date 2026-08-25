@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-connect-order-seat-limit-error-is-opaque",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Connect (on-premises), RestTicketing.svc",
+    "tier": "on_premises_cms",
+    "doc_root": "https://connect.westwindtheaters.com/WSVistaWebClient/api-docs/general/introduction",
+    "endpoint": "Order limits on tickets"
+  },
+  "behaviour": {
+    "summary": "A limit exists on the maximum number of tickets or reserved seats held on a single order, counted across all sessions in that order. Exceeding it returns a generic invalid-request error, and the documentation states plainly that the response is not intended to be programmed against.",
+    "testable_as": "Exceeding the configured per-order seat limit returns Result: 4 on V1 endpoints or HTTP 400 on V2, with no member naming the limit, the current count, or the fact that a limit was the cause.",
+    "consequence_for_agents": "A budget that is enforced but neither published nor typed on refusal is indistinguishable from a malformed request, so the only correct agent behaviour — back off and stop — is the one behaviour the response cannot ask for. CHANGEOVER's exhaustion refusals are typed, carry a remediation, and every limit that binds at runtime must already appear in the capability document.",
+    "spec_rules": ["X2", "X4"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 180,
+  "half_life_basis": "Documentation for an on-premises product, served per deployment, so different sites may run different versions of it. Half a year.",
+  "confidence_at_observation": 0.9,
+  "citation": {
+    "url": "https://connect.westwindtheaters.com/WSVistaWebClient/api-docs/creating-orders/seats-and-tickets",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "Connect enforces a limit on the maximum number of tickets, or reserved seats, that can be held on a single order... As such Connect will return a generic invalid request error (Result: 4 for V1 endpoints and HTTP 400 for V2) and it's not intended that this response is programmed against.",
+    "locator": "Order limits on tickets"
+  },
+  "verification_gap": "The limit's value is per deployment and is not published. The behaviour was read from one publicly reachable Connect host's documentation, not exercised."
+}

@@ -1,0 +1,37 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "veezi-session-refused-without-site-token",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Veezi API",
+    "tier": "smb_cms",
+    "doc_root": "https://api.us.veezi.com/help",
+    "endpoint": "GET /v1/session"
+  },
+  "behaviour": {
+    "summary": "The read surface refuses an unauthenticated request with 403 and an empty body. The credential is a per-site header token issued by the cinema in its own back office; there is no anonymous read tier, no scope negotiation and no discovery of what the token would have permitted.",
+    "testable_as": "GET https://api.us.veezi.com/v1/session with no VeeziAccessToken header returns 403 and a zero-length body.",
+    "consequence_for_agents": "The boundary is authorised per site, so an agent acting across an estate holds N credentials obtained through N conversations, and a refusal carries no machine-readable reason distinguishing absent credential from revoked one. CHANGEOVER's answer is a typed refusal with a remediation, not a bare status.",
+    "spec_rules": ["Z1", "O1"]
+  },
+  "method": "probed_live",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 90,
+  "half_life_basis": "A live deployment's authentication behaviour can change on any release, and nothing announces it. Ninety days is roughly one vendor release cadence; past that the observation is history, not evidence.",
+  "confidence_at_observation": 1.0,
+  "citation": {
+    "url": "https://api.us.veezi.com/help/Authentication",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "To make a call to any of the Veezi API methods you must add the access token to a custom HTTP header VeeziAccessToken. If this is not provided or if the access token is not valid you will receive a 403 Forbidden HTTP reposonse.",
+    "locator": "Authentication"
+  },
+  "evidence": {
+    "probe_request": "GET https://api.us.veezi.com/v1/session (no VeeziAccessToken header)",
+    "response_status": 403,
+    "response_bytes": 0,
+    "assertion": "The documented refusal is the observed refusal: 403, empty body, no WWW-Authenticate challenge and no problem document.",
+    "reproduce": "curl -s -o /dev/null -w '%{http_code} %{size_download}\\n' https://api.us.veezi.com/v1/session",
+    "probed_by": "independent_unauthenticated"
+  },
+  "notes": "Probed without credentials against a surface the vendor's own help pages publish as the public entry point. No token was held, sought or used."
+}

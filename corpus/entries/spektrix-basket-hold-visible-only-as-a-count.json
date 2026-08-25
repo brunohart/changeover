@@ -1,0 +1,39 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "spektrix-basket-hold-visible-only-as-a-count",
+  "surface": {
+    "vendor": "Spektrix",
+    "product": "Spektrix API v3, Web/Public mode",
+    "tier": "arts_venue_platform",
+    "doc_root": "https://integrate.spektrix.com/docs/API3",
+    "endpoint": "GET /{client}/api/v3/instances/{instanceId}/status"
+  },
+  "behaviour": {
+    "summary": "The public availability read for an instance reports held inventory as an integer named inBasket, alongside available, unavailable and capacity. There is no hold identity, no deadline, no owner and no way to ask whether a particular seat is held rather than how many seats are.",
+    "testable_as": "GET .../instances/{id}/status returns 200 and a document whose members include inBasket as a number, and which contains no member naming a hold identifier or an expiry instant.",
+    "consequence_for_agents": "A count is not a commitment. An agent can watch inBasket move and learn nothing about whether the seat it wants will still exist in ninety seconds, which is the only question it actually has. CHANGEOVER's Hold is the object this read model does not have.",
+    "spec_rules": [
+      "W2",
+      "T1"
+    ]
+  },
+  "method": "probed_live",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 90,
+  "half_life_basis": "Same live-deployment decay as the plan probe: an added member would change this claim silently and without announcement. Ninety days.",
+  "confidence_at_observation": 1.0,
+  "citation": {
+    "url": "https://integrate.spektrix.com/docs/API3",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "locator": "API v3 overview, Web/Public mode",
+    "quote": "Web/Public mode does not require any authentication."
+  },
+  "evidence": {
+    "probe_request": "GET https://system.spektrix.com/apitesting/api/v3/instances/90801ADCHGPKGDSJCLPHLQJMGHDMHKLCK/status",
+    "response_status": 200,
+    "assertion": "Members observed: areaId, name, available, wheelchairAvailable, specialAvailable, capacity, inBasket, unavailable, lockInfoAvailable, lockInfoSpecialAvailable. inBasket is a bare integer; no hold id, no expiry, no owner.",
+    "reproduce": "curl -s https://system.spektrix.com/apitesting/api/v3/instances/{instanceId}/status",
+    "probed_by": "independent_unauthenticated"
+  },
+  "notes": "Response size was not recorded for this probe, so no response_bytes is claimed. The members listed in `assertion` are the members observed."
+}

@@ -1,0 +1,37 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "spektrix-public-seat-plan-served-unauthenticated",
+  "surface": {
+    "vendor": "Spektrix",
+    "product": "Spektrix API v3, Web/Public mode",
+    "tier": "arts_venue_platform",
+    "doc_root": "https://integrate.spektrix.com/docs/API3",
+    "endpoint": "GET /{client}/api/v3/instances/{instanceId}/plan"
+  },
+  "behaviour": {
+    "summary": "A full reserved-seating plan for a single instance is served to an unauthenticated caller: venue, background image, areas, per-seat coordinates and identifiers. Seat-level legibility below the exhibitor already exists at the arts-venue tier without any credential, on the vendor's own demonstration client.",
+    "testable_as": "GET https://system.spektrix.com/apitesting/api/v3/instances/{id}/plan with no credential returns 200 and a document whose top-level members include venue, areas, seats and capacity.",
+    "consequence_for_agents": "Legibility is not the missing piece. An agent can already see the room; what it cannot do anywhere in this estate is take a stated, irrevocable position in it. This entry exists to stop the specification claiming credit for a gap that is already closed.",
+    "spec_rules": ["W1"]
+  },
+  "method": "probed_live",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 90,
+  "half_life_basis": "The observation is of a demonstration tenant the vendor may reconfigure or retire at will, and unauthenticated read is precisely the setting most likely to be tightened. Ninety days.",
+  "confidence_at_observation": 1.0,
+  "citation": {
+    "url": "https://integrate.spektrix.com/docs/API3",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "Web/Public mode does not require any authentication.",
+    "locator": "API v3 overview, authentication modes"
+  },
+  "evidence": {
+    "probe_request": "GET https://system.spektrix.com/apitesting/api/v3/instances/90801ADCHGPKGDSJCLPHLQJMGHDMHKLCK/plan",
+    "response_status": 200,
+    "response_bytes": 376084,
+    "assertion": "200 with a seat-level plan; top-level members observed: type, name, venue, backgroundImageUrl, x, y, areas, seats, capacity, maxZoomWeb, maxZoomMobile, vertices, id.",
+    "reproduce": "curl -s https://system.spektrix.com/apitesting/api/v3/events?onSale=true | head -c 400   # then follow /events/{id}/instances and /instances/{id}/plan",
+    "probed_by": "independent_unauthenticated"
+  },
+  "notes": "Read only. No basket was created, no write path was exercised, and whether the vendor sanctions write operations against this demonstration client is unverified — see corpus/README.md on the probing discipline."
+}

@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-expiry-auto-extended-by-mutating-endpoint",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "Order expiry (guide), Automatically extending order expiry"
+  },
+  "behaviour": {
+    "summary": "An in-progress order has its expiry extended automatically by any endpoint that modifies it, and extended by a longer duration again when a payment is created. The deadline is therefore a function of unrelated traffic against the order rather than a fact stated once at reservation.",
+    "testable_as": "After reading expiresAt, call any order-mutating operation and read expiresAt again: it has moved forward, with no member of the request having asked for that.",
+    "consequence_for_agents": "The one datum an autonomous consumer must be able to trust — when does this stop being mine — is silently rewritten by its own ordinary activity, so an agent cannot promise a deadline downstream. CHANGEOVER makes the Hold non-extendable by construction: there is no verb that moves floor_deadline, so no call can move it by accident.",
+    "spec_rules": ["T2", "T4"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 180,
+  "half_life_basis": "Published contract behaviour on a maintained guide page. Stable over a release or two, not over a rewrite; half a year.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/orders/expiry.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "In-progress orders will automatically have their order expiry extended by any endpoint that modifies an order... The expiry is extended by a longer duration upon payment creation to allow the patron to complete payment.",
+    "locator": "Automatically extending order expiry"
+  },
+  "verification_gap": "The extension durations are not published. Measuring them requires tenant access."
+}

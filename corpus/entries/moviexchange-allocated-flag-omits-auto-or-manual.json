@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "moviexchange-allocated-flag-omits-auto-or-manual",
+  "surface": {
+    "vendor": "movieXchange",
+    "product": "MX Reference Data API, Showtimes",
+    "tier": "aggregation_layer",
+    "doc_root": "https://apidocs.moviexchange.com/docs/welcome-to-the-mx-api",
+    "endpoint": "GET /mxs/reference-data/v1/sites/{siteId}/showtimes"
+  },
+  "behaviour": {
+    "summary": "The showtimes model carries a single flag for whether seating is allocated, and the vendor documents the limitation candidly: the API does not indicate whether that allocation is automatic or manual. A caller learns that seats matter and not whether it must choose them.",
+    "testable_as": "The published Showtimes model exposes an allocated-seating boolean and no member distinguishing automatic from manual allocation.",
+    "consequence_for_agents": "The first branch in any seat-selection routine — do I pick, or am I given — cannot be taken from the data, so an agent must guess or ask a human, at the exact moment the point of an agent was not to. CHANGEOVER makes the manner of an Occasion part of the assertion set the etag is computed over, so a change in it is a change the consumer can detect.",
+    "spec_rules": ["S1", "M2"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 180,
+  "half_life_basis": "A documented limitation is the kind of claim a vendor closes deliberately and then announces; the page carries its own Updated about 1 year ago stamp, so it is neither fresh nor abandoned. Half a year.",
+  "confidence_at_observation": 0.9,
+  "citation": {
+    "url": "https://apidocs.moviexchange.com/docs/apis",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "The MX Showtimes API currently only indicates whether a showtime's seating is allocated or not—not whether allocation is automatic or manual.",
+    "locator": "Limitations"
+  },
+  "notes": "movieXchange Limited publicly describes itself as a company of Vista Group International Ltd. Recorded because the aggregation seat between exhibitor and ticketer is commercially occupied, which is a constraint on this project's positioning, not a relationship: see corpus/README.md."
+}
