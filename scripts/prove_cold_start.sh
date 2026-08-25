@@ -164,8 +164,8 @@ else
   bad "the transcript never said whether the gate held"
 fi
 
-# --- 4 · no network beyond loopback, measured rather than claimed ------------
-node --input-type=module -e '
+# --- 4 · no network beyond loopback, and the same shape twice ---------------
+RESULT="$WORK/result.json" node --input-type=module -e '
 import net from "node:net";
 import dns from "node:dns";
 
@@ -186,8 +186,10 @@ for (const key of ["lookup"]) {
   dns.promises[key] = function (hostname, ...rest) { record(hostname); return promised.call(dns.promises, hostname, ...rest); };
 }
 
+import { readFileSync } from "node:fs";
 const { runDemo } = await import("./packages/cli/src/demo/run.ts");
 const result = await runDemo({ floor_trials: 1, probe_floor_ms: 5000 });
+const first = JSON.parse(readFileSync(process.env.RESULT, "utf8"));
 
 let fail = 0, pass = 0;
 const ok  = (m) => { console.log("ok — " + m); pass++; };
@@ -204,6 +206,21 @@ offsite.length === 0
 result.refusals.length === 4
   ? ok("a second run, at a different measured floor, still refused exactly four times")
   : bad(`the second run refused ${result.refusals.length} times`);
+
+// The determinism claim, in the only form it can honestly take. The transcript
+// itself carries real elapsed times, a CSPRNG hold id and a random
+// `intent_digest`, so two runs CANNOT be byte-identical and a demo whose bytes
+// repeated would be one that had stopped measuring. What must repeat is the
+// shape, and `fingerprint` is exactly the shape with the unrepeatable parts left
+// out — reel ids, outcomes, codes, statuses, remediations, in order.
+result.fingerprint === first.fingerprint
+  ? ok("two independent runs produced a byte-identical fingerprint")
+  : bad(`the shape moved between runs:\n    ${first.fingerprint}\n    ${result.fingerprint}`);
+
+// And the parts that must NOT repeat, did not.
+first.reels[1].beats.some((b) => (b.block ?? []).some((l) => l.startsWith("hold_id")))
+  ? ok("the transcript carries a per-run hold id, so the fingerprint is a projection and not the whole of it")
+  : bad("the transcript printed no hold id, so the fingerprint claim asserts nothing");
 
 console.log(`SUBPASS=${fail ? 0 : pass}`);
 process.exit(fail);
