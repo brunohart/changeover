@@ -64,10 +64,19 @@ export interface GateResult extends InputRequiredResult {
  * rule is about what a human is invited to click, not about what parses as an
  * RFC 3986 URI.
  */
-const URI_SHAPED = /[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9-]|\b[a-z0-9-]+\.(com|net|org|io|co|nz|uk)\b|\bmailto:|\bdata:/i;
+const SCHEME_SHAPED = /[a-z][a-z0-9+.-]*:\/\/|\bwww\.[a-z0-9-]|\bmailto:|\bdata:/i;
+
+/**
+ * A bare authority — `embassy.example` — with **no `i` flag, deliberately.**
+ * A case-insensitive version of this rule matches `St.James`, and a gate that
+ * refused to render a legitimate venue name would be a rule somebody turns
+ * off. Hostnames are conventionally lowercase and every link a client
+ * auto-detects is; a capitalised word after a full stop is a sentence.
+ */
+const BARE_AUTHORITY = /\b[a-z0-9][a-z0-9-]*\.[a-z]{2,24}\b/;
 
 export function containsUri(text: string): boolean {
-  return URI_SHAPED.test(text);
+  return SCHEME_SHAPED.test(text) || BARE_AUTHORITY.test(text);
 }
 
 export class GatePromptError extends Error {
