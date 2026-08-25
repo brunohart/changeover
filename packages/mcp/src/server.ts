@@ -135,7 +135,7 @@ export const DEFAULT_MAX_PAGE_SIZE = 200;
 /* -- The result shape ------------------------------------------------------- */
 
 export interface ToolOutcome {
-  readonly structuredContent: Record<string, unknown>;
+  readonly structuredContent?: Record<string, unknown>;
   readonly content: ReadonlyArray<{ type: "text"; text: string }>;
   readonly isError?: boolean;
   readonly _meta?: Record<string, unknown>;
@@ -157,16 +157,26 @@ function outcome(
 }
 
 /**
- * A refusal, rendered. `isError: true` so a client that reads nothing else
- * knows; the closed-taxonomy document in `structuredContent` so a client that
- * reads one thing gets a **code** and not a sentence.
+ * A refusal, rendered — and deliberately **not** in `structuredContent`.
+ *
+ * `structuredContent` is the member `outputSchema` governs, and a Refusal is
+ * not a Hold. Putting one there would mean either emitting a document that
+ * fails the tool's own declared schema — measured: SDK 1.30.0 validates
+ * `structuredContent` even when `isError` is set, and answers `-32602` — or
+ * widening every `outputSchema` with a refusal branch, which would say that
+ * refusing is one of the things `hold_seats` returns *successfully*. It is
+ * not. `isError: true` is the protocol's word for this, and the closed-taxonomy
+ * document travels in `_meta`, whole, so a caller with no eyes still gets a
+ * **code** and not a sentence.
  */
 function refusalOutcome(document: RefusalDocument): ToolOutcome {
   return {
-    structuredContent: document as unknown as Record<string, unknown>,
     content: [{ type: "text", text: JSON.stringify(document) }],
     isError: true,
-    _meta: { [META.binding]: MCP_BINDING_VERSION, [META.refusal]: document.code },
+    _meta: {
+      [META.binding]: MCP_BINDING_VERSION,
+      [META.refusal]: document,
+    },
   };
 }
 
