@@ -27,7 +27,7 @@ import type { Server } from "node:http";
 
 import type { Db } from "@changeover/store/db.ts";
 import { openDb } from "@changeover/store/db.ts";
-import { migrate } from "@changeover/store/migrate.ts";
+import { migrate, resetEstate } from "@changeover/store/migrate.ts";
 import type { Estate } from "@changeover/store/fixtures.ts";
 import {
   NZ_FOUR_SITE,
@@ -208,9 +208,31 @@ export interface BenchOptions {
 
 export async function bootBench(options: BenchOptions = {}): Promise<Bench> {
   const started = Date.now();
-  // Concurrently, because the two are independent stores and the measurement is
-  // mostly waiting: booting them in series would spend the sum of two windows
-  // to learn two unrelated facts.
+
+  // The two exhibitors are independent SITES. Whether they are independent
+  // STORES depends on the driver, and this bench used to assume they always
+  // were: PGlite gives every openDb() its own in-process cluster, so on the
+  // default path they genuinely are. Under one CHANGEOVER_PG_URL they are two
+  // origins in one database — which is a fair thing for the demo to model, but
+  // it means the estate must be cleared ONCE, here, and never inside
+  // bootExhibitor, where the second exhibitor's reset would delete the first
+  // exhibitor's Occasions out from under it.
+  //
+  // Without this the demo resolved whatever the last script left in the store.
+  // Measured 2026-08-25: prove_claim_prefetch_safe seeds an Occasion whose
+  // document is `{ book_url }` and nothing else, and the demo died on
+  // `demo:  was not returned by resolve_occasions` — an empty occasion_id,
+  // because the document it had been handed carried no occasion_id to key on.
+  const ground = await openDb();
+  try {
+    await migrate(ground);
+    await resetEstate(ground);
+  } finally {
+    await ground.close();
+  }
+
+  // Concurrently, because the measurement is mostly waiting: booting them in
+  // series would spend the sum of two windows to learn two unrelated facts.
   const [circuit, independent] = await Promise.all([
     bootExhibitor({
       site_id: "site_aro_circuit",
