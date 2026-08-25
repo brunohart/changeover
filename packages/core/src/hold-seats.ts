@@ -184,6 +184,14 @@ export interface AvailabilitySource {
  */
 export interface BudgetGuard {
   reserve(tx: Queryable, grant: BudgetContext): Promise<void>;
+  /**
+   * OPTIONAL. The read-only halves of G1 steps 8 and 9, for the one path on
+   * which no Hold row will be inserted: a `selection: best_available` request
+   * the house cannot fill. A guard that does not implement it simply does not
+   * contribute to the order on that path, which is what every guard written
+   * before 2026-08-26 already did.
+   */
+  probe?(tx: Queryable, grant: BudgetContext): Promise<void>;
 }
 
 /** What a budget guard is entitled to know. No prose, no personal data, no price. */
@@ -358,6 +366,13 @@ interface GrantContext {
   granted: GrantedRow | null;
   /** W1's answer, handed from step 10 to step 11 so the inventory is read once. */
   statuses: ReadonlyMap<string, string>;
+  /**
+   * A refusal seat SELECTION reached before G1's order said it could be raised.
+   * `best_available` runs inside `lockAndReap`, immediately before the first
+   * writing step, so a throw from there jumps steps 8 through 11. Recorded here
+   * and raised by the loop instead.
+   */
+  deferred: Refusal | null;
 }
 
 interface GrantedRow extends Row {
@@ -806,6 +821,7 @@ export async function holdSeats(
     floor_ms: 0,
     granted: null,
     statuses: new Map(),
+    deferred: null,
   };
 
   // Phase one. G1's `phase` column asserts at load that the request-only steps
@@ -827,7 +843,21 @@ export async function holdSeats(
       if (step.phase === "request") continue;
       // L1: before ANY reap or insert, and therefore immediately before the
       // first step G1 marks as writing — whichever step that becomes.
-      if (step.step === G1_FIRST_WRITING_STEP) await lockAndReap(ctx);
+      if (step.step === G1_FIRST_WRITING_STEP) {
+        await lockAndReap(ctx);
+        if (ctx.deferred !== null) {
+          // G1: the FIRST failure in the stated order, whichever request form
+          // asked. A `best_available` request the house cannot fill still owes
+          // the Agent `cluster_fanout` or `hold_budget_exhausted` where either
+          // binds — the same code the same facts produce for a request that
+          // named its seats. Only the halves that do not need a Hold row can
+          // run, because on this path there will be no Hold; that is exactly
+          // steps 8 and 9's subject, which is what the principal ALREADY holds.
+          await refuseLabelledFanout(ctx);
+          await ctx.options.budgets.probe?.(tx(ctx), budgetContext(ctx));
+          throw ctx.deferred;
+        }
+      }
       await RUNNERS[step.name](ctx);
     }
 
@@ -883,7 +913,14 @@ async function lockAndReap(ctx: GrantContext): Promise<void> {
   const held = ctx.occasion as OccasionRow;
 
   if (ctx.request.selection !== undefined) {
-    ctx.seat_ids = await chooseBestAvailable(q, held, ctx.request.selection);
+    const chosen = await chooseBestAvailable(q, held, ctx.request.selection);
+    ctx.seat_ids = chosen.seats;
+    if (chosen.short) {
+      // Recorded, not thrown. L1 is still satisfied — the locked set below is
+      // the full set this transaction will touch — and the refusal is raised by
+      // the loop, after the steps G1 puts ahead of it have had their turn.
+      ctx.deferred = seatContended([]);
+    }
   }
 
   await lockSeats(q, held.showtime_id, ctx.seat_ids);
@@ -912,11 +949,59 @@ async function lockAndReap(ctx: GrantContext): Promise<void> {
  * authored seat rules, {@link SeatRuleCheck} refuses the chosen set at step 11
  * rather than this function silently choosing around a rule it does not know.
  */
+/**
+ * Step 8's LABELLED half, read-only, for the deferred path.
+ *
+ * The `cluster` runner enforces X2's labelled case with the `hold_cluster_live`
+ * index — which only fires on an INSERT, and the deferred path inserts nothing.
+ * The derived half (`refuseDerivedFanout`, inside the budget guard's `probe`)
+ * catches Occasions attested as mutual substitutes; it explicitly does not
+ * catch the publisher's own `cluster` label, because the index already did.
+ * Without this, a `best_available` request the house cannot fill would answer
+ * `seat_contended` to a principal whose real obstacle is a cluster they already
+ * hold in — the exact request-form divergence this branch exists to close.
+ *
+ * The reap is the same one the runner performs, on the same key, for the same
+ * reason: a stale cluster row belongs to a Hold M1 already reports as expired,
+ * and leaving it would refuse a principal their own next hold forever.
+ */
+async function refuseLabelledFanout(ctx: GrantContext): Promise<void> {
+  const held = ctx.occasion as OccasionRow;
+  if (held.cluster === null) return;
+  const q = tx(ctx);
+  const key = [ctx.credential.agent_id, ctx.credential.principal_scope, held.origin, held.cluster];
+
+  await q.query(
+    `delete from hold_cluster
+      where agent_id = $1 and principal_scope = $2 and origin = $3 and cluster = $4
+        and held_until <= now() and state in ('live', 'handed_off')`,
+    key,
+  );
+  const conflict = await q.query<{ hold_id: string }>(
+    `select hold_id from hold_cluster
+      where agent_id = $1 and principal_scope = $2 and origin = $3 and cluster = $4
+        and state in ('live', 'handed_off')
+      limit 1`,
+    key,
+  );
+  const conflicting_hold_id = conflict.rows[0]?.hold_id;
+  if (conflicting_hold_id === undefined) return;
+  throw refuse("cluster_fanout", "You already hold seats for that run of screenings.", {
+    detail: { conflicting_hold_id, cluster: held.cluster, limit: 1 },
+  });
+}
+
+interface Chosen {
+  readonly seats: string[];
+  /** True where the house could not fill the request. Never a refusal here. */
+  readonly short: boolean;
+}
+
 async function chooseBestAvailable(
   q: Queryable,
   occasion: OccasionRow,
   selection: Selection,
-): Promise<string[]> {
+): Promise<Chosen> {
   const r = await q.query<{ seat_id: string; seat_row: string | null; seat_number: number | null }>(
     `select s.seat_id, s.seat_row, s.seat_number
        from occasion_seat s
@@ -943,19 +1028,20 @@ async function chooseBestAvailable(
             typeof run[k - 1].seat_number === "number" &&
             seat.seat_number === (run[k - 1].seat_number as number) + 1),
       );
-      if (sameRow && contiguous) return sortCSeats(run.map((seat) => seat.seat_id));
+      if (sameRow && contiguous) return { seats: sortCSeats(run.map((seat) => seat.seat_id)), short: false };
     }
-    throw refuse("seat_contended", "There is no run of seats together left at that screening.", {
-      detail: { seat_ids: [] },
-    });
+    // NOT a throw. This function runs inside `lockAndReap`, which runs
+    // immediately before G1's first WRITING step, so a refusal raised here
+    // pre-empts steps 8 through 11 and the Agent is handed a code out of G1's
+    // order. What it returns instead is what it found; the caller records the
+    // refusal and evaluates the earlier steps before raising it.
+    return { seats: [], short: true };
   }
 
   if (rows.length < selection.quantity) {
-    throw refuse("seat_contended", "There are not that many seats left at that screening.", {
-      detail: { seat_ids: [] },
-    });
+    return { seats: sortCSeats(rows.map((seat) => seat.seat_id)), short: true };
   }
-  return sortCSeats(rows.slice(0, selection.quantity).map((seat) => seat.seat_id));
+  return { seats: sortCSeats(rows.slice(0, selection.quantity).map((seat) => seat.seat_id)), short: false };
 }
 
 /* ── 10 · The grant itself ─────────────────────────────────────────────────── */
