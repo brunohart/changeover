@@ -5,6 +5,11 @@ hands the customer back to the exhibitor's own checkout, with the seats still th
 
 > A changeover is the eight seconds in which two machines run at once so the audience never sees the seam.
 
+[![proofs](https://github.com/brunohart/changeover/actions/workflows/proofs.yml/badge.svg)](https://github.com/brunohart/changeover/actions/workflows/proofs.yml)
+[![spec](https://img.shields.io/badge/spec-v0.1-C08B4F?style=flat-square&labelColor=15191F)](SPEC.md)
+[![settlement](https://img.shields.io/badge/settlement-absent%2C%20not%20gated-4E8C63?style=flat-square&labelColor=15191F)](DECISIONS.md#adr-001--no-settlement-verb-permanently)
+[![implementation](https://img.shields.io/badge/reference%20impl-not%20yet%2C%20on%20purpose-8C97A3?style=flat-square&labelColor=15191F)](docs/2026-08-25-cx-01-spec-first.md)
+
 ---
 
 ## The gap
