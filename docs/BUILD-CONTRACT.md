@@ -317,6 +317,43 @@ if (String(err).includes("duplicate key")) …  // passes in English; fails in t
 
 **Branch on the constraint name, never on the bare `23505`.** Two partial unique indexes both raise `23505` and they mean entirely different refusals. `sqlstate()` shape-checks against `/^[0-9A-Z]{5}$/` precisely so that `ENOENT` on `err.code` cannot be mistaken for a SQLSTATE.
 
+### `clock_timestamp()` is VOLATILE — read it once, and it has bitten this build
+
+`clock_timestamp()` is re-evaluated at **every occurrence**, not once per statement. `now()` is `STABLE` and is transaction start, so repeated reads of *it* are identical — which is exactly why the trap is invisible until you use the other one.
+
+The `hold` table's own CHECK is an equality:
+
+```sql
+constraint hold_floor_derived
+  check (floor_deadline = granted_at + (floor_ms * interval '1 millisecond'))
+```
+
+So a fixture that ages a Hold like this **cannot satisfy it**:
+
+```sql
+-- WRONG. Two reads, two different microseconds, and 23514 hold_floor_derived.
+update hold set granted_at     = clock_timestamp() - interval '10 minutes',
+                floor_deadline = clock_timestamp() - interval '10 minutes' + (floor_ms * interval '1 millisecond')
+ where hold_id = $1
+```
+
+```sql
+-- RIGHT. One read, joined in, used as many times as you like.
+update hold set granted_at     = t.g - interval '10 minutes',
+                floor_deadline = t.g - interval '10 minutes' + (floor_ms * interval '1 millisecond')
+  from (select clock_timestamp() as g) t
+ where hold_id = $1
+```
+
+**This is not hypothetical.** Four sites across CORE-005's test file and proof script carried the wrong form. It failed roughly **one whole-suite run in twelve** — often enough to be real, rarely enough that every agent who ran it saw green and reported green. `packages/store/test/schema.test.ts` already had the right idiom; the drift went the other way.
+
+Two ways to stay out of it:
+
+- Ageing an existing Hold? Shift the columns **relative to themselves** — `granted_at = granted_at - interval '10 minutes'` — which preserves every derived equality by construction and reads no clock at all. `prove_lock_order.sh` does this.
+- Setting them fresh? Use `GRANT_CLOCK_SUBQUERY` from `packages/core/src/clock.ts`, which is documented as *"the single-evaluation form of `GRANT_CLOCK`. Join it into a statement's FROM"* and exists for precisely this.
+
+A corollary for anyone writing a repeated measurement: **an intermittent failure is a failure.** If a run is green, run it ten more times before you report a number.
+
 ### What PGlite cannot do, and what you must do about it
 
 PGlite is **single-connection and in-process**. True multi-connection concurrency, lock contention and `40P01` deadlock detection are **not reproducible on it**. Docker's daemon is not running on this machine and `psql` is not installed, so there is no real multi-connection Postgres available right now.
