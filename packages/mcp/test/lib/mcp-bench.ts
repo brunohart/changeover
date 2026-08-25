@@ -115,12 +115,25 @@ export interface McpBench {
 export interface McpBenchOptions {
   readonly gate?: GateOptions;
   readonly overrides?: Partial<McpServerOptions>;
+  /**
+   * Attach a second server to a store that is already migrated and seeded.
+   *
+   * I7's second half needs exactly this: *"MUST accept the same key on the
+   * gate-satisfying retry."* The retry is a different Server — the human has
+   * answered, so the credential now carries the `attended` grant — against the
+   * **same** idempotency table. A fresh store would make the retry trivially
+   * accepted, which is not the claim.
+   */
+  readonly db?: Db;
 }
 
 export async function mcpBench(options: McpBenchOptions = {}): Promise<McpBench> {
-  const db = await openDb();
-  await migrate(db);
-  await seedEstate(db, publishableEstate());
+  const attached = options.db !== undefined;
+  const db = options.db ?? (await openDb());
+  if (!attached) {
+    await migrate(db);
+    await seedEstate(db, publishableEstate());
+  }
 
   const site = siteConfig("1");
   const { server } = createMcpServer({
@@ -153,7 +166,9 @@ export async function mcpBench(options: McpBenchOptions = {}): Promise<McpBench>
     async close() {
       await client.close();
       await server.close();
-      await db.close();
+      // A bench that borrowed its store does not close it: the lender is still
+      // using it, and PGlite has exactly one connection to lose.
+      if (!attached) await db.close();
     },
   };
 }
@@ -164,6 +179,8 @@ export interface ToolCall {
   readonly isError: boolean;
   readonly structured: any;
   readonly meta: Record<string, any>;
+  /** The closed-taxonomy Refusal, which travels in `_meta` and never in `structuredContent`. */
+  readonly refusal: any;
 }
 
 export async function callTool(
@@ -172,10 +189,12 @@ export async function callTool(
   args: Record<string, unknown>,
 ): Promise<ToolCall> {
   const result: any = await bench.client.callTool({ name, arguments: args });
+  const meta = (result._meta ?? {}) as Record<string, any>;
   return {
     isError: result.isError === true,
     structured: result.structuredContent,
-    meta: (result._meta ?? {}) as Record<string, any>,
+    meta,
+    refusal: meta["dev.changeover.exhibition/refusal"],
   };
 }
 
