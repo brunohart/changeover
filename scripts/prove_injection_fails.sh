@@ -51,7 +51,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import canonicalize from "canonicalize";
 import { project } from "./scripts/lib/project.mjs";
-import { openDb } from "./packages/store/src/db.ts";
+import { CannotProve, EXIT_CANNOT_PROVE, openDb } from "./packages/store/src/db.ts";
 import { runCInject } from "./packages/conformance/src/inject/c-inject.ts";
 import { runCPiiIngest } from "./packages/conformance/src/inject/c-pii-ingest.ts";
 
@@ -65,13 +65,26 @@ const mint = (occasion) =>
   "1:" + createHash("sha256").update(Buffer.from(canonicalize(project(occasion, POINTERS)), "utf8")).digest("base64url");
 
 const db = await openDb();
+let unreachable = null;
 try {
   report(await runCInject({ db, mint }));
   report(runCPiiIngest());
 } catch (err) {
-  bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 5).join(" | ") : err));
+  // A precondition that vanished is not a failure. CannotProve is raised only
+  // where the estate this proof seeded was removed from the store underneath
+  // it, which is reachable against a shared CHANGEOVER_PG_URL and says nothing
+  // whatever about the boundary.
+  if (err instanceof CannotProve) unreachable = err;
+  else bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 5).join(" | ") : err));
 } finally {
   await db.close();
+}
+
+if (unreachable !== null) {
+  console.log("cannot prove -- " + unreachable.message);
+  console.log("  to make it provable:");
+  for (const line of unreachable.remedy.split("\n")) console.log("    " + line);
+  process.exit(EXIT_CANNOT_PROVE);
 }
 
 if (pass < 20 && !fail) bad("only " + pass + " assertions ran; the proof did not reach the end");
