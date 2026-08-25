@@ -75,12 +75,12 @@ function generatedCandidates(seed: number, n: number): Candidate[] {
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       if (next() < 0.28) {
-        (candidates[i] as { accepts_substitute: unknown[] }).accepts_substitute.push({
+        (candidates[i] as unknown as { accepts_substitute: unknown[] }).accepts_substitute.push({
           occasion_id: ids[j],
           axis: "instant",
         });
       } else if (next() < 0.12) {
-        (candidates[i] as { not_substitutable_for: unknown[] }).not_substitutable_for.push({
+        (candidates[i] as unknown as { not_substitutable_for: unknown[] }).not_substitutable_for.push({
           occasion_id: ids[j],
           axis: "presentation_class",
         });
