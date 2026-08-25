@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:corpus-entry:0.1",
+  "title": "CHANGEOVER boundary corpus entry",
+  "description": "One recorded behaviour of one real exhibitor boundary. An entry records how a surface ACTUALLY behaves, which is not always what its documentation says it behaves like, and it records HOW that was established and WHEN — because a claim about a live system is a perishable good. This schema is not a CHANGEOVER document schema: it is never emitted by a Server, never appears on a verb's wire, and its member names are therefore deliberately absent from schemas/member-manifest.json (Lock 2 covers the eight document schemas only). Licensed under LICENSE-BSL.md, unlike everything else in this repository.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "entry_schema",
+    "id",
+    "surface",
+    "behaviour",
+    "method",
+    "observed_at",
+    "half_life_days",
+    "half_life_basis",
+    "confidence_at_observation",
+    "citation"
+  ],
+  "properties": {
+    "entry_schema": {
+      "const": "urn:changeover:schema:corpus-entry:0.1",
+      "description": "Self-identification. An entry that does not name the schema it was written against cannot be safely re-read by a later version of the corpus."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "minLength": 8,
+      "maxLength": 96,
+      "description": "Stable, permanent, kebab-case. Never reused and never redefined: a fingerprint emitted in 2026 must still resolve in 2029. Correcting an entry means a NEW id that names the old one in `supersedes`."
+    },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vendor",
+        "product",
+        "tier"
+      ],
+      "description": "The boundary the behaviour belongs to. Naming a vendor is a citation, never an affiliation: see corpus/README.md.",
+      "properties": {
+        "vendor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "tier": {
+          "type": "string",
+          "enum": [
+            "enterprise_cms",
+            "on_premises_cms",
+            "smb_cms",
+            "aggregation_layer",
+            "arts_venue_platform",
+            "open_source_ticketing",
+            "showtime_feed"
+          ],
+          "description": "Where in the estate this surface sits. The long tail behaves differently from the enterprise tier and a corpus that only recorded the enterprise tier would describe a minority of screens."
+        },
+        "doc_root": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 400
+        },
+        "endpoint": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "The specific operation, as the vendor spells it. Free of any host-identifying credential by construction: no query string carrying a token may be recorded here."
+        }
+      }
+    },
+    "behaviour": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "summary",
+        "testable_as",
+        "consequence_for_agents"
+      ],
+      "properties": {
+        "summary": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 900,
+          "description": "What the boundary does, stated precisely enough that a reader could disagree with it."
+        },
+        "testable_as": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 900,
+          "description": "The assertion a probe would make. If this cannot be written, the entry is an opinion and does not belong here."
+        },
+        "consequence_for_agents": {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 900,
+          "description": "Why an autonomous consumer, unlike a human watching a countdown, is harmed or misled by it."
+        },
+        "spec_rules": {
+          "type": "array",
+          "maxItems": 12,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(T|K|I|L|N|G|M|S|E|X|Z|O|HO|CL|R|W|P|D|A|PR|Q|V)[0-9]$"
+          },
+          "description": "The CHANGEOVER normative rules this behaviour bears on. The corpus is what makes those rules answerable to something outside themselves."
+        }
+      }
+    },
+    "method": {
+      "type": "string",
+      "enum": [
+        "probed_live",
+        "documented",
+        "vendor_stated",
+        "reproduced_in_fixture"
+      ],
+      "description": "How the claim was established, and the whole point of the entry. probed_live: a request was sent to the vendor's own API surface and the response observed — `evidence` is then MANDATORY. documented: quoted from public vendor documentation describing the published contract. vendor_stated: quoted from the vendor's own words about internal or operational behaviour that the public surface does not expose for verification — believed on the vendor's authority alone. reproduced_in_fixture: a fixture in this repository reproduces the behaviour and a test asserts it."
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 with a mandatory offset. When the behaviour was observed — NOT when the entry was written, and NOT when the source was published."
+    },
+    "half_life_days": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3650,
+      "description": "Days after which this claim's confidence has halved, absent re-observation. A live deployment decays faster than a published contract; an absence decays fastest of all, because absence is the easiest thing for a vendor to fix without announcing it."
+    },
+    "half_life_basis": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 600,
+      "description": "Why THIS number. A half-life with no stated basis is a decoration."
+    },
+    "confidence_at_observation": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence at observed_at, before any decay. Read together with half_life_days: confidence(t) = confidence_at_observation * 2 ** (-(t - observed_at) / half_life_days)."
+    },
+    "citation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "retrieved_at"
+      ],
+      "description": "Mandatory. An uncited entry is an assertion about somebody else's system made without evidence, and this corpus does not contain any.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "minLength": 12,
+          "maxLength": 500
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "quote": {
+          "type": "string",
+          "maxLength": 900,
+          "description": "Verbatim from the source. Prose only, never an instruction: quoted vendor text is data in this repository and is never executed, interpolated into a request, or shown to a model as guidance."
+        },
+        "locator": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Where in the source — a heading, a line number, an operation id."
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "probe_request",
+        "response_status",
+        "assertion",
+        "reproduce"
+      ],
+      "description": "Required when and only when method is probed_live. Deliberately narrow: status codes, byte counts and a repeatable command. No response body is ever stored here, because a stored body is an unbounded channel for exactly the personal data this project forbids.",
+      "properties": {
+        "probe_request": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 400,
+          "description": "Method and URL. Unauthenticated unless stated; never a credential."
+        },
+        "response_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "response_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "assertion": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 600,
+          "description": "What the response established."
+        },
+        "reproduce": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 600,
+          "description": "A command a reader can run to see the same thing, or the reason they cannot."
+        },
+        "probed_by": {
+          "type": "string",
+          "enum": [
+            "independent_unauthenticated"
+          ],
+          "description": "Closed on purpose. There is one permitted provenance and it is not a person: no name, no operator identity, no account. A corpus that recorded who probed would be a corpus that carried personal data."
+        }
+      }
+    },
+    "verification_gap": {
+      "type": "string",
+      "maxLength": 600,
+      "description": "What an external party cannot check, and what access would be needed to check it. Mandatory in spirit for vendor_stated; the schema does not force it because an honest 'none' is meaningless."
+    },
+    "supersedes": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 96
+    },
+    "superseded_by": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "maxLength": 96
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 900
+    }
+  },
+  "if": {
+    "properties": {
+      "method": {
+        "const": "probed_live"
+      }
+    },
+    "required": [
+      "method"
+    ]
+  },
+  "then": {
+    "properties": {
+      "evidence": {
+        "type": "object",
+        "description": "Declared here so that a strict validator can see the member this branch requires. The full shape is the one defined above."
+      }
+    },
+    "required": [
+      "evidence"
+    ]
+  }
+}

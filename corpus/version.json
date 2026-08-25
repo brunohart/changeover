@@ -1,0 +1,8 @@
+{
+  "corpus_version": "0.1.0",
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "released_at": "2026-08-25T13:20:00+12:00",
+  "licence": "BUSL-1.1",
+  "licence_file": "LICENSE-BSL.md",
+  "note": "The entry count is deliberately absent from this file. The corpus is a directory, not a table: adding an entry is adding a file, and a count recorded here would be wrong the first time somebody did that."
+}
