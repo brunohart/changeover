@@ -116,8 +116,18 @@ authoritative — a title is the assertion about *which film*. See `docs/2026-08
 
 **Context.** Application logic that checks before writing is a race with extra steps.
 
-**Decision.** A **partial unique index** on `(occasion_id, seat_id)` whose predicate includes every seat-occupying
+**Decision.** A **partial unique index** on `(showtime_id, seat_id)` whose predicate includes every seat-occupying
 state — `live`, `handed_off`, **and `claimed`**. The draft omitted `claimed`, which let a seat be re-held after a claim.
+
+**Corrected 2026-08-25.** This ADR originally wrote the index over `(occasion_id, seat_id)`, contradicting SPEC.md §4.6
+and §2.2 — which labels `showtime_ref` *"the index key of §4.6"*. The specification is right and this record was wrong.
+The scarce thing is a seat at a **physical screening**, and `showtime_ref` exists precisely so a publisher can map
+several Occasions onto one screening: a premiere and a standard listing of the same 7pm show, or two price bands sold
+as separate Occasions. Keyed on `occasion_id`, two such Occasions can each hold seat F11 and both commit — the index
+sees two distinct keys and the house sells one seat twice. That is oversell arriving *through* the constraint written
+to make it unrepresentable. The two keys are identical only while `showtime_ref` is absent, which is true of every
+golden fixture, which is why the divergence survived review. Found while decomposing the build into issues; the
+migration and `prove_migrations.sh` now assert the key as well as the predicate.
 
 **Consequences.** Two concurrent holds on one seat cannot both commit, because the second violates a constraint rather
 than losing an argument. `C-ATOMIC` asserts it at 200 concurrent holds on a 100-seat house: exactly 100 succeed, 100
