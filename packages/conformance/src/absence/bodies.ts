@@ -36,6 +36,7 @@ import {
   holdBody,
   httpBench,
   key,
+  siteConfig,
 } from "../../../http/test/lib/http-bench.ts";
 
 export interface Body {
@@ -65,7 +66,20 @@ const ABSENT_HOLD = "hold_00000000000000000000000000000000";
  * their happy path, six typed refusals, three poisoned requests, and two
  * settlement-shaped paths that must simply not be there.
  */
-export async function httpBodies(): Promise<{ bodies: Body[]; settlement: number[] }> {
+export const CAPABILITY_LABEL = "GET /.well-known/changeover";
+
+export async function httpBodies(): Promise<{
+  bodies: Body[];
+  settlement: number[];
+  /**
+   * The operator address the site publishes at `usage_policy.contact`, read from
+   * the configuration rather than from the response. The canary compares the one
+   * email it is willing to account for against what the exhibitor declared; an
+   * address that appeared in a body without appearing here would be a leak
+   * wearing the shape of a policy member.
+   */
+  operator_contact: string;
+}> {
   const bench = await httpBench();
   const bodies: Body[] = [];
   const settlement: number[] = [];
@@ -83,7 +97,7 @@ export async function httpBodies(): Promise<{ bodies: Body[]; settlement: number
     const read = await call(bench, "GET", "/changeover/v0/holds/" + hold_id, { token: AGENT_TOKEN });
     add("GET /holds/{id}", read);
 
-    add("GET /.well-known/changeover", await call(bench, "GET", "/.well-known/changeover"));
+    add(CAPABILITY_LABEL, await call(bench, "GET", "/.well-known/changeover"));
     add(
       "GET /.well-known/changeover/delegation.json",
       await call(bench, "GET", "/.well-known/changeover/delegation.json"),
@@ -197,7 +211,7 @@ export async function httpBodies(): Promise<{ bodies: Body[]; settlement: number
     await bench.close();
   }
 
-  return { bodies, settlement };
+  return { bodies, settlement, operator_contact: siteConfig().usage_policy.contact };
 }
 
 /* -- The MCP binding -------------------------------------------------------- */
@@ -208,7 +222,18 @@ export async function httpBodies(): Promise<{ bodies: Body[]; settlement: number
  * travels in `_meta` on this binding and a canary that read only the structured
  * half would be blind to exactly the channel that carries prose.
  */
-export async function mcpBodies(): Promise<{ bodies: Body[]; tools: string[] }> {
+export interface SettlementCall {
+  readonly name: string;
+  /** True when the surface refused to select it at all. */
+  readonly refused: boolean;
+  readonly note: string;
+}
+
+export async function mcpBodies(): Promise<{
+  bodies: Body[];
+  tools: string[];
+  settlementCalls: SettlementCall[];
+}> {
   const { holdArgs, key: mcpKey, mcpBench } = await import("../../../mcp/test/lib/mcp-bench.ts");
   const bench = await mcpBench();
   const bodies: Body[] = [];
@@ -216,6 +241,7 @@ export async function mcpBodies(): Promise<{ bodies: Body[]; tools: string[] }> 
     bodies.push({ label, text: JSON.stringify(value) });
 
   let tools: string[] = [];
+  const settlementCalls: SettlementCall[] = [];
   try {
     const listed = (await bench.client.listTools()) as { tools: { name: string }[] };
     tools = listed.tools.map((t) => t.name);
@@ -269,11 +295,30 @@ export async function mcpBodies(): Promise<{ bodies: Body[]; tools: string[] }> 
     /* -- Lock 1: a settlement tool cannot be called because it is not there -- */
 
     for (const name of ["settle", "settle_hold", "capture_payment", "refund", "charge_card"]) {
-      await invoke("tools/call " + name, name, { hold_id });
+      const label = "tools/call " + name;
+      try {
+        const result = (await bench.client.callTool({ name, arguments: { hold_id } })) as {
+          isError?: boolean;
+          structuredContent?: unknown;
+        };
+        add(label, result);
+        settlementCalls.push({
+          name,
+          refused: result.isError === true && result.structuredContent === undefined,
+          note:
+            result.isError === true
+              ? "refused, and carried no structuredContent"
+              : "ANSWERED: isError " + String(result.isError),
+        });
+      } catch (err) {
+        // A protocol-level rejection is a body too: it is what the agent sees.
+        add(label + " (protocol error)", { message: (err as Error).message });
+        settlementCalls.push({ name, refused: true, note: "rejected at the protocol" });
+      }
     }
   } finally {
     await bench.close();
   }
 
-  return { bodies, tools };
+  return { bodies, tools, settlementCalls };
 }

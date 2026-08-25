@@ -38,6 +38,18 @@ export interface KillTest {
   readonly sql: string;
   /** The rule this attempt would break if the database let it through. */
   readonly why: string;
+  /**
+   * The SQLSTATE the cluster must raise. `42501 insufficient_privilege` is the
+   * ordinary answer. Two attempts expect `42P01 undefined_table` instead, and
+   * that is a *stronger* denial rather than a weaker one: `0003` revokes USAGE
+   * on schema `public` and re-grants it to exactly one role, so
+   * `changeover_retention` cannot so much as NAME a hold table — it fails at the
+   * schema, before any table grant is consulted. Asserting 42501 there would be
+   * asserting that the name resolved.
+   */
+  readonly expect: string;
+  /** Why this attempt expects the SQLSTATE it expects, where that is not obvious. */
+  readonly expect_why?: string;
 }
 
 /**
@@ -50,66 +62,79 @@ export const KILL_TESTS: readonly KillTest[] = Object.freeze([
     role: "changeover_agent",
     sql: "insert into occasion (occasion_id) values ('occ_kill_test')",
     why: "W3 — the estate is the exhibitor's system of record; a boundary that can write it can manufacture the availability it then reports",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "insert_occasion_seat",
     role: "changeover_agent",
     sql: "insert into occasion_seat (occasion_id, seat_id) values ('occ_kill_test', 'A:1')",
     why: "W3 — the same, one level down: the seat inventory is not the boundary's to invent",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "update_occasion",
     role: "changeover_agent",
     sql: "update occasion set occasion_id = occasion_id",
     why: "W3 — the boundary cannot withdraw or rewrite a screening it did not publish",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "delete_hold",
     role: "changeover_agent",
     sql: "delete from hold",
     why: "M2 — a Hold reports its seats as granted for the life of the record, so the boundary cannot end that life",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "update_hold_floor_ms",
     role: "changeover_agent",
     sql: "update hold set floor_ms = 1",
     why: "T1/T3 — the floor is immovable by grant, not by the absence of a code path that moves it",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "update_hold_granted_at",
     role: "changeover_agent",
     sql: "update hold set granted_at = clock_timestamp()",
     why: "T3 — a movable grant instant is a movable floor wearing a different column name",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "update_hold_agent_id",
     role: "changeover_agent",
     sql: "update hold set agent_id = 'agent_someone_else'",
     why: "C-AUTHZ — a Hold that can change hands by UPDATE has no owner",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "update_access_log",
     role: "changeover_agent",
     sql: "update changeover_log.access_log set outcome = 'ok'",
     why: "A3 — the log is append-only by grant; a refusal that can be rewritten to a success is not evidence",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "delete_access_log",
     role: "changeover_agent",
     sql: "delete from changeover_log.access_log",
     why: "P2/A3 — erasure is honoured by destroying the site epoch key and detaching the partition, never by deleting a row",
+    expect: SQLSTATE.insufficient_privilege,
   },
   {
     id: "retention_reads_hold",
     role: "changeover_retention",
     sql: "select hold_id from hold",
     why: "A3 — the role that can destroy the record of the boundary holds nothing else, so it cannot read the boundary either",
+    expect: SQLSTATE.undefined_table,
+    expect_why: "USAGE on schema public is revoked from PUBLIC and re-granted to changeover_agent alone, so the table name does not resolve for this role at all",
   },
   {
     id: "retention_reads_occasion",
     role: "changeover_retention",
     sql: "select occasion_id from occasion",
     why: "A3 — the same, stated of the estate: USAGE on schema public is closed and re-opened to exactly one role",
+    expect: SQLSTATE.undefined_table,
+    expect_why: "the same schema-level closure: a name that never resolves is a stronger denial than one that resolves and is refused",
   },
 ]);
 
@@ -120,7 +145,7 @@ export interface KillOutcome {
   readonly id: string;
   /** The SQLSTATE the cluster raised, or `undefined` when the statement succeeded. */
   readonly sqlstate: string | undefined;
-  /** True only when the cluster raised 42501. */
+  /** True only when the cluster raised the SQLSTATE this attempt expects. */
   readonly denied: boolean;
   /** True when the statement was allowed through — the failure this class exists to catch. */
   readonly allowed: boolean;
@@ -151,7 +176,7 @@ export async function runKillTest(db: Db, test: KillTest): Promise<KillOutcome> 
     return {
       id: test.id,
       sqlstate: state,
-      denied: state === SQLSTATE.insufficient_privilege,
+      denied: state === test.expect,
       allowed: false,
       note: state === undefined ? String((err as Error).message ?? err) : "",
     };
