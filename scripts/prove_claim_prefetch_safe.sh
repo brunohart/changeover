@@ -36,6 +36,7 @@ import {
   claimToken, claimTokenIsValid, confirmClaim, originOf, parseClaimUrl, renderClaim, sameOrigin,
 } from "./packages/core/src/claim.ts";
 import { writeAccessLog } from "./packages/core/src/access-log.ts";
+import { readFileSync } from "node:fs";
 
 let fail = 0, pass = 0;
 const ok  = (m) => { console.log("ok — " + m); pass++; };
@@ -111,6 +112,19 @@ try {
   moved.length === 2 && moved.every((r) => r.state === "handed_off" && r.held_until === h.claim_expires_at)
     ? ok("T6 — every seat row moved to handed_off with held_until = claim_expires_at, in the same transaction as the transition")
     : bad("held_until did not follow the hand-off: " + JSON.stringify(moved));
+
+  // HO2, and the other half of HO1, asserted structurally rather than promised.
+  // The behavioural assertion above says this hand-off accepted a floor-passed
+  // Hold; this one says no future edit can quietly reintroduce the guard that
+  // refused it. Comments are stripped first, because the prose ABOUT the floor
+  // is the whole reason the file mentions it at all.
+  const source = readFileSync("packages/core/src/hand-off.ts", "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ");
+  const forbidden = ["floor_deadline", "clock_guard"].filter((id) => source.includes(id));
+  forbidden.length === 0
+    ? ok("HO1/HO2 — with its comments stripped, hand-off.ts names neither floor_deadline nor clock_guard: the guard that lied cannot come back by accident")
+    : bad("hand-off.ts still reads " + forbidden.join(" and ") + " outside a comment");
 
   /* ── CL2 — the whole point of the endpoint ────────────────────────────── */
 
