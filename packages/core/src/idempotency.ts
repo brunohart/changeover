@@ -390,3 +390,324 @@ export function applyReprojection<T extends object>(
   }
   return out as T;
 }
+
+/* ── 6 · What the wrapped verb may return ──────────────────────────────────── */
+
+/**
+ * I7: *"An `InputRequiredResult` is **not an operation**. A Server MUST NOT
+ * record an idempotency entry for a call returning `input_required`, and MUST
+ * accept the same key on the gate-satisfying retry."*
+ *
+ * Structural rather than a member: anything the verb returns carrying
+ * `input_required: true` releases the key instead of storing a record.
+ */
+export interface InputRequiredResult {
+  readonly input_required: true;
+}
+
+export function isInputRequired(value: unknown): value is InputRequiredResult {
+  return typeof value === "object" && value !== null &&
+    (value as { input_required?: unknown }).input_required === true;
+}
+
+export type IdempotencyOutcome<T> =
+  | { readonly disposition: "executed"; readonly replayed: false; readonly record: T }
+  | { readonly disposition: "replayed"; readonly replayed: true; readonly record: T; readonly claim_consumed: boolean }
+  | { readonly disposition: "input_required"; readonly replayed: false; readonly result: InputRequiredResult };
+
+/* ── 7 · The windows ───────────────────────────────────────────────────────── */
+
+/**
+ * How long an in-flight marker is believed before another caller may take the
+ * key over.
+ *
+ * An in-flight row is a **lease**, not a tombstone. A process killed between
+ * claiming the key and storing the record would otherwise wedge that key at
+ * `409 idempotency_in_flight` forever, and I6 tells the Agent to keep retrying
+ * the same key — so a permanent in-flight row is a permanent retry loop.
+ *
+ * **Takeover requires the digest to match.** A stale lease under a *different*
+ * digest is `422 idempotency_key_reused`: the previous attempt may have granted
+ * a Hold before it died, so the key is not demonstrably unused, and I5's "no
+ * action taken" is the only answer that cannot double-book. The residual is
+ * stated rather than hidden — a same-digest takeover after a crash that had
+ * already granted can grant a second Hold, which is why the lease is long
+ * relative to a grant transaction and not short relative to a retry.
+ */
+export const IN_FLIGHT_LEASE_MS: DurationMs = 30_000;
+
+/** The shortest wait an Agent is asked to make before re-sending the same key. */
+export const IN_FLIGHT_RETRY_MIN_MS: DurationMs = 250;
+
+/** I9: *"the retention window is `min(24 hours, claim_expires_at)`."* */
+export const RETENTION_MS: DurationMs = 24 * 60 * 60 * 1000;
+
+/* ── 8 · Options ───────────────────────────────────────────────────────────── */
+
+export interface IdempotencyOptions<T> {
+  /** M1. Defaults to {@link STORE_REPROJECTION}; CORE-003's `derived.ts` replaces it. */
+  readonly reprojector?: Reprojector;
+  readonly in_flight_lease_ms?: DurationMs;
+  readonly retention_ms?: DurationMs;
+  /** Where the record's `hold_id` is. The FK column, and what the replay re-projects. */
+  readonly hold_id?: (record: T) => string | null;
+  /** I9's second bound on retention. Defaults to `record.handoff.claim_expires_at`. */
+  readonly claim_expires_at?: (record: T) => Rfc3339 | null;
+  /** P2. CORE-007's `hmac.ts` replaces this. */
+  readonly key_hmac?: (idempotency_key: string) => string;
+}
+
+function defaultHoldId(record: unknown): string | null {
+  const value = (record as Record<string, unknown> | null)?.hold_id;
+  return typeof value === "string" ? value : null;
+}
+
+function defaultClaimExpiresAt(record: unknown): Rfc3339 | null {
+  const handoff = (record as Record<string, unknown> | null)?.[HANDOFF_MEMBER];
+  if (handoff === null || typeof handoff !== "object") return null;
+  const value = (handoff as Record<string, unknown>).claim_expires_at;
+  return typeof value === "string" ? value : null;
+}
+
+/* ── 9 · The store, in three phases ────────────────────────────────────────── */
+
+interface ExistingEntry {
+  readonly status: "in_flight" | "stored";
+  readonly request_digest: string;
+  readonly record: unknown;
+  readonly server_time: Rfc3339;
+  readonly retention_passed: boolean;
+  readonly remaining_ms: DurationMs;
+}
+
+const KEY_PREDICATE =
+  "agent_id = $1 and principal_scope = $2 and verb = $3 and idempotency_key_hmac = $4";
+
+/**
+ * Take the key, or fail to. One statement, so that two callers racing for one
+ * key are separated by the primary key rather than by a read-then-write that
+ * both pass. `rowCount === 0` means the key is already held by someone.
+ */
+async function claimKey(
+  db: Db,
+  params: readonly unknown[],
+  request_digest: string,
+  lease_ms: DurationMs,
+): Promise<boolean> {
+  const result = await db.query(
+    `insert into idempotency
+       (agent_id, principal_scope, verb, idempotency_key_hmac,
+        request_digest, status, created_at, retention_until)
+     values ($1, $2, $3, $4, $5, 'in_flight', clock_timestamp(),
+             clock_timestamp() + ($6::bigint * interval '1 millisecond'))
+     on conflict on constraint idempotency_scope do update
+        set request_digest  = excluded.request_digest,
+            status          = 'in_flight',
+            record          = null,
+            hold_id         = null,
+            created_at      = excluded.created_at,
+            retention_until = excluded.retention_until
+      where idempotency.status          = 'in_flight'
+        and idempotency.retention_until <= excluded.created_at
+        and idempotency.request_digest  = excluded.request_digest
+     returning 1 as claimed`,
+    [...params, request_digest, String(lease_ms)],
+  );
+  return result.rowCount > 0;
+}
+
+async function readEntry(db: Db, params: readonly unknown[]): Promise<ExistingEntry | null> {
+  const result = await db.query<{
+    status: string;
+    request_digest: string;
+    record: unknown;
+    server_time: string;
+    retention_passed: boolean;
+    remaining_ms: string;
+  }>(
+    `with t as (select clock_timestamp() as now)
+     select i.status,
+            i.request_digest,
+            i.record,
+            ${rfc3339Sql("t.now")}                            as server_time,
+            (t.now >= i.retention_until)                      as retention_passed,
+            greatest(0, extract(epoch from (i.retention_until - t.now)) * 1000)::bigint::text
+                                                              as remaining_ms
+       from idempotency i, t
+      where ${KEY_PREDICATE}`,
+    params,
+  );
+  const row = result.rows[0];
+  if (row === undefined) return null;
+  return {
+    status: row.status as ExistingEntry["status"],
+    request_digest: row.request_digest,
+    record: row.record,
+    server_time: row.server_time,
+    retention_passed: row.retention_passed === true,
+    remaining_ms: Number(row.remaining_ms ?? 0),
+  };
+}
+
+/** I7, and every refusal: the key is freed, so the same key is accepted next time. */
+async function releaseKey(db: Db, params: readonly unknown[]): Promise<void> {
+  await db.query(
+    `delete from idempotency where ${KEY_PREDICATE} and status = 'in_flight'`,
+    params,
+  );
+}
+
+async function storeRecord(
+  db: Db,
+  params: readonly unknown[],
+  record: unknown,
+  hold_id: string | null,
+  claim_expires_at: Rfc3339 | null,
+  retention_ms: DurationMs,
+): Promise<void> {
+  // I9: `min(24 hours, claim_expires_at)`. Postgres `least()` ignores NULL, so a
+  // record with no claim window keeps the 24-hour bound with no branch here.
+  await db.query(
+    `update idempotency
+        set status          = 'stored',
+            record          = $5::jsonb,
+            hold_id         = $6,
+            retention_until = least(created_at + ($7::bigint * interval '1 millisecond'),
+                                    $8::timestamptz)
+      where ${KEY_PREDICATE} and status = 'in_flight'`,
+    [...params, JSON.stringify(record), hold_id, String(retention_ms), claim_expires_at],
+  );
+}
+
+/* ── 10 · The verb wrapper — I8 puts this before G1 ────────────────────────── */
+
+/**
+ * Evaluate idempotency, then run the verb — in that order, which is I8.
+ *
+ * Throws `422 idempotency_key_reused` for a reused key under a different digest
+ * and `409 idempotency_in_flight` while an identical key is executing. Returns
+ * a replayed record for a key-and-digest match, **without the verb running at
+ * all**: no guard evaluates, no seat lock is taken, no reap fires. That is the
+ * whole of I8 and it is why the wrapper is a wrapper and not a step inside
+ * `hold_seats`.
+ *
+ * A refusal thrown by `execute` releases the key. A refused call took no action,
+ * so there is nothing to replay, and leaving the marker would answer the retry
+ * that I6 instructs the Agent to make with `idempotency_in_flight` forever.
+ */
+export async function withIdempotency<T extends object>(
+  db: Db,
+  scope: IdempotencyScope,
+  request_digest: string,
+  execute: () => Promise<T | InputRequiredResult>,
+  options: IdempotencyOptions<T> = {},
+): Promise<IdempotencyOutcome<T>> {
+  if (typeof scope.agent_id !== "string" || scope.agent_id.length === 0) {
+    throw refuse("not_authorised", "This credential carries no agent identity.");
+  }
+  // X0/I2: the scope tuple is credential-derived in full. An empty principal
+  // scope is absence, and absence collapses the idempotency namespace to the
+  // whole agent platform.
+  if (typeof scope.principal_scope !== "string" || scope.principal_scope.length === 0) {
+    throw refuse("principal_scope_missing", "This credential carries no principal scope.");
+  }
+  if (!IDEMPOTENT_VERBS.includes(scope.verb)) {
+    throw refuse("schema_validation", "That verb does not carry an idempotency key.");
+  }
+  assertKeyShape(scope.idempotency_key);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(request_digest)) {
+    throw new Error("idempotency: request_digest is not SHA-256 base64url");
+  }
+
+  const hmac = (options.key_hmac ?? keyHmac)(scope.idempotency_key);
+  const params: readonly unknown[] = [scope.agent_id, scope.principal_scope, scope.verb, hmac];
+  const lease_ms = options.in_flight_lease_ms ?? IN_FLIGHT_LEASE_MS;
+  const retention_ms = options.retention_ms ?? RETENTION_MS;
+  const reprojector = options.reprojector ?? STORE_REPROJECTION;
+
+  let claimed = await claimKey(db, params, request_digest, lease_ms);
+
+  if (!claimed) {
+    let existing = await readEntry(db, params);
+    if (existing === null) {
+      // The holder released the key between the conflict and this read — a
+      // refusal or a gate, both of which delete the row. Try once more for the
+      // key itself rather than reporting a state nobody is in.
+      claimed = await claimKey(db, params, request_digest, lease_ms);
+      if (!claimed) existing = await readEntry(db, params);
+    }
+
+    if (!claimed) {
+      if (existing === null) {
+        // Two callers are cycling this key faster than it can be read. Honest
+        // answer: it is in flight somewhere else. Never a fabricated replay.
+        throw refuse("idempotency_in_flight", "That idempotency key is in use.", {
+          retry_after_ms: IN_FLIGHT_RETRY_MIN_MS,
+        });
+      }
+
+      // I5, first and unconditionally: same key, different digest, no action.
+      if (existing.request_digest !== request_digest) {
+        throw refuse(
+          "idempotency_key_reused",
+          "That idempotency key was already used for a different request. No action was taken.",
+        );
+      }
+
+      // I6. Never block on the holder's transaction: waiting holds a connection
+      // through an arbitrary lock wait and turns a retry storm into an outage.
+      if (existing.status === "in_flight") {
+        throw refuse("idempotency_in_flight", "An identical request is already executing.", {
+          retry_after_ms: Math.max(IN_FLIGHT_RETRY_MIN_MS, Math.min(existing.remaining_ms, lease_ms)),
+        });
+      }
+
+      // I4/I8/I9 — the replay.
+      const stored = existing.record as T;
+      const hold_id = (options.hold_id ?? defaultHoldId)(stored);
+      if (hold_id === null) {
+        throw new Error("idempotency: a stored record with no hold_id cannot be re-projected");
+      }
+      const time_bearing = await reprojector.project(db, hold_id);
+      if (time_bearing === null) {
+        // Unreachable while `idempotency.hold_id` is `on delete cascade`, and a
+        // server defect rather than a refusal if it ever is reached: returning
+        // the stored time-bearing members would be the cached lie I4 forbids.
+        throw new Error(`idempotency: hold ${hold_id} is gone and current state cannot be projected`);
+      }
+      const claim_consumed = time_bearing.claim_spent || existing.retention_passed;
+      return {
+        disposition: "replayed",
+        replayed: true,
+        claim_consumed,
+        record: applyReprojection(stored, time_bearing, claim_consumed),
+      };
+    }
+  }
+
+  let result: T | InputRequiredResult;
+  try {
+    result = await execute();
+  } catch (err) {
+    await releaseKey(db, params);
+    throw err;
+  }
+
+  if (isInputRequired(result)) {
+    await releaseKey(db, params);
+    return { disposition: "input_required", replayed: false, result };
+  }
+
+  await storeRecord(
+    db,
+    params,
+    result,
+    (options.hold_id ?? defaultHoldId)(result),
+    (options.claim_expires_at ?? defaultClaimExpiresAt)(result),
+    retention_ms,
+  );
+  return { disposition: "executed", replayed: false, record: result };
+}
+
+/** Re-exported so a binding tells a refusal from a fault without a second import. */
+export { Refusal };
