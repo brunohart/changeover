@@ -624,7 +624,16 @@ async function refuseDerivedFanout(
 
   const cluster = demandCluster(candidates, grant.occasion_id);
   const inCluster = new Set(cluster.members);
-  const conflicting = held.rows.filter((row) => inCluster.has(row.occasion_id));
+  // A second Hold on the SAME Occasion is not fan-out across interchangeable
+  // inventory — an Occasion is not an alternative to itself — and it is already
+  // governed by `max_live_holds_per_showtime`. Counting it here would make that
+  // published limit unreachable for every unlabelled Occasion: the second hold
+  // would always be refused by a ceiling of one before the ceiling of two could
+  // bind. The publisher's own `cluster` label still refuses the repetition, via
+  // `hold_cluster_live` at G1 step 8, and that is the publisher's choice to make.
+  const conflicting = held.rows.filter(
+    (row) => row.occasion_id !== grant.occasion_id && inCluster.has(row.occasion_id),
+  );
   if (conflicting.length + 1 <= limit) return;
 
   const first = conflicting[0];
