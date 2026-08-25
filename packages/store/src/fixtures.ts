@@ -293,6 +293,11 @@ export const HUNDRED_SEAT_HOUSE: Estate = {
 export const ESTATES: Readonly<Record<string, Estate>> = {
   golden: GOLDEN_ESTATE,
   "hundred-seat-house": HUNDRED_SEAT_HOUSE,
+  // DEMO-001's four venues across two origins. Defined at the bottom of this
+  // file, and dated from the moment this module loaded rather than written down.
+  get "nz-four-site"() {
+    return NZ_FOUR_SITE;
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -377,4 +382,514 @@ export function availableSeatIds(occasion: OccasionSeed, count: number): string[
     .filter((s) => s.status === "available")
     .slice(0, count)
     .map((s) => s.seat_id);
+}
+
+// ---------------------------------------------------------------------------
+// The four-site New Zealand circuit. Added by DEMO-001.
+// ---------------------------------------------------------------------------
+//
+// Four venues, TWO origins, and the split is load-bearing rather than
+// decorative.
+//
+// **E1** requires every substitution edge to target an Occasion published at
+// the same `venue.origin`, and **E3** scopes `cluster` to `(venue.origin,
+// cluster)`. So the three rooms that argue with each other about what is a
+// substitute for what — the archival house and the two multiplex screens — are
+// one operator at one origin, which is the ordinary shape of a small circuit.
+// Cross-exhibitor substitution is out of scope in v0.1 and this estate is built
+// so that a demo cannot accidentally imply otherwise.
+//
+// The fourth site is a different exhibitor entirely, and it is here because it
+// publishes no seat map. `availability.mode: "unknown"` is not a gap in the
+// fixture; it is the state §2.9 gives a code for. An Agent MUST NOT read it as
+// sold out and MUST NOT read it as available, and there is no way to show that
+// with an estate where every house answers.
+//
+// **Every instant is computed from `now`.** An estate with a written-down 2026
+// sales cutoff passes today and starts refusing `past_sales_cutoff` on a date
+// nobody chose — G1 step 6, arriving as a demo that used to work. `days_ahead`
+// is relative and the house is always open.
+
+export const NZ_ORIGIN_CIRCUIT = "https://aro-circuit.example";
+export const NZ_ORIGIN_INDEPENDENT = "https://whitcombe.example";
+
+/** X2's fan-out key at {@link NZ_ORIGIN_CIRCUIT}. Distinct from the golden cluster. */
+export const NZ_CLUSTER = "the-conversation-2026-w35";
+
+/** The four Occasion ids, named so a reel refers to a constant and not a string. */
+export const NZ_OCCASION = {
+  /** 35mm four-perf, the archival house. What the customer chose. */
+  kereru: "occ_kereru_fri_1900_s1",
+  /** DCP, later the same night, cheaper. Attests it is substitutable BY the print. */
+  totara_4: "occ_totara4_fri_2115_s4",
+  /** DCP, Sunday matinee, open captions. Incomparable — a different night. */
+  totara_2: "occ_totara2_sun_1400_s2",
+  /** A different exhibitor, publishing no seat map at all. */
+  whitcombe: "occ_whitcombe_sat_1830_s1",
+} as const;
+
+export type NzOccasionKey = keyof typeof NZ_OCCASION;
+
+/** `1:` plus 43 base64url characters, derived from the id so two runs agree. */
+function stableEtag(seed: string): string {
+  const bytes = Buffer.alloc(32);
+  // A fixed, non-cryptographic spread of the id across the 32 bytes. The value
+  // is opaque and Z3 forbids parsing it; what matters is that it is stable for
+  // an id, differs between ids, and is not mistakable for a PROJECTION_0_1
+  // digest by anything that recomputes one.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < 32; i++) {
+    for (let j = 0; j < seed.length; j++) {
+      h = Math.imul(h ^ seed.charCodeAt(j), 0x01000193) >>> 0;
+    }
+    h = Math.imul(h ^ i, 0x01000193) >>> 0;
+    bytes[i] = h & 0xff;
+  }
+  return `1:${bytes.toString("base64url")}`;
+}
+
+/**
+ * The local wall and offset of an instant in a named zone, without importing a
+ * package that computes it. `longOffset` is `GMT+12:00` in winter and
+ * `GMT+13:00` under New Zealand daylight time, so an estate built in February
+ * and an estate built in July both carry the offset that was true.
+ */
+function wallAt(at: Date, timezone: string): { local_wall: string; local_wall_offset: string } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "longOffset",
+  }).formatToParts(at);
+  const of = (type: string): string => parts.find((p) => p.type === type)?.value ?? "";
+  const hour = of("hour") === "24" ? "00" : of("hour");
+  const zone = of("timeZoneName").replace(/^GMT/, "");
+  return {
+    local_wall: `${of("year")}-${of("month")}-${of("day")}T${hour}:${of("minute")}`,
+    local_wall_offset: zone === "" ? "+00:00" : zone,
+  };
+}
+
+interface NzInstant {
+  readonly starts_at: string;
+  readonly local_wall: string;
+  readonly local_wall_offset: string;
+  readonly sales_cutoff_at: string;
+}
+
+/**
+ * The next Friday in the venue's own zone that is at least `min_days_ahead`
+ * away, as a UTC instant at local noon.
+ *
+ * The Occasion ids in this estate say `fri`, `sat` and `sun`. An estate that
+ * computed `now + 5 days` would put a screening called Friday on a Tuesday
+ * within a week of being written, and the id would be a small lie in a fixture
+ * whose whole job is to be checked. Anchoring to a real weekday costs eight
+ * lines and the ids stay true for as long as the calendar does.
+ */
+function nzAnchorFriday(now: Date, timezone: string, min_days_ahead: number): Date {
+  const at = new Date(now.getTime() + min_days_ahead * 86_400_000);
+  for (let i = 0; i < 7; i++) {
+    const day = new Date(at.getTime() + i * 86_400_000);
+    const name = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" }).format(day);
+    if (name === "Fri") return day;
+  }
+  // Unreachable: seven consecutive days contain every weekday exactly once.
+  throw new Error("fixtures: no Friday in seven days");
+}
+
+/** `anchor + days`, snapped to `hour:minute` in the venue's own zone. */
+function nzInstant(anchor: Date, days: number, hour: number, minute: number, timezone: string): NzInstant {
+  // Land on the right calendar day in the venue's zone first, then walk the
+  // wall clock to the hour asked for. Doing it the other way round puts a 19:00
+  // screening at 06:00 whenever the process runs in UTC.
+  const day = wallAt(new Date(anchor.getTime() + days * 86_400_000), timezone);
+  const date = day.local_wall.slice(0, 10);
+  const offset = day.local_wall_offset;
+  const hh = String(hour).padStart(2, "0");
+  const mm = String(minute).padStart(2, "0");
+  const starts_at = `${date}T${hh}:${mm}:00${offset}`;
+  const started = new Date(starts_at);
+  const cutoff = new Date(started.getTime() + 900_000);
+  const cutoff_wall = wallAt(cutoff, timezone);
+  return {
+    starts_at,
+    local_wall: `${date}T${hh}:${mm}`,
+    local_wall_offset: offset,
+    sales_cutoff_at: `${cutoff_wall.local_wall}:00${cutoff_wall.local_wall_offset}`,
+  };
+}
+
+const NZ_TIMEZONE = "Pacific/Auckland";
+
+/** §2.5's fourteen members, at the numbers the golden fixtures publish. */
+const NZ_HOLD_POLICY = Object.freeze({
+  policy_max_floor_ms: 180000,
+  handoff_floor_ms: 300000,
+  clock_guard_ms: 2000,
+  max_clock_skew_tolerance_ms: 1000,
+  max_seats_per_hold: 6,
+  max_live_holds_per_showtime: 2,
+  max_holds_per_site_per_hour: 6,
+  max_live_holds_per_cluster: 1,
+  max_live_seats_per_showtime: 6,
+  max_held_seat_fraction_bp: 500,
+  max_held_fraction_per_showtime: 0.02,
+  max_live_holds_per_site: 40,
+  revocation_voids_holds: true,
+  abandonment_floor_penalty_bp: 0,
+});
+
+const prose = (value: string) => ({ content_type: "text/plain", value });
+
+interface NzSiteSeed {
+  readonly occasion_id: string;
+  readonly origin: string;
+  readonly venue_id: string;
+  readonly venue_name: string;
+  readonly locality: string;
+  readonly auditorium_id: string;
+  readonly auditorium_name: string;
+  readonly capacity: number;
+  readonly available: number;
+  readonly per_row: number;
+  /** Days after the anchor Friday. 0 Friday, 1 Saturday, 2 Sunday. */
+  readonly day_offset: number;
+  readonly hour: number;
+  readonly minute: number;
+  readonly presentation_classes: readonly string[];
+  readonly occasion_classes?: readonly string[];
+  readonly open_captions: "yes" | "no";
+  readonly amount_minor: number;
+  readonly offer_id: string;
+  readonly band: string;
+  readonly cluster: string;
+  readonly policy: "strict" | "advisory";
+  readonly accepts_substitute?: readonly { occasion_id: string; axis: string }[];
+  readonly not_substitutable_for?: readonly {
+    occasion_id: string;
+    axis: string;
+    reason_code: string;
+    detail: string;
+  }[];
+  /** `unknown` publishes no seat map, no count and no staleness budget. */
+  readonly availability_mode: "seat_map" | "unknown";
+  readonly why_this_room?: string;
+  readonly note?: string;
+  readonly book_path: string;
+}
+
+function nzOccasion(seed: NzSiteSeed, now: Date, anchor: Date): OccasionSeed {
+  const instant = nzInstant(anchor, seed.day_offset, seed.hour, seed.minute, NZ_TIMEZONE);
+  const etag = stableEtag(seed.occasion_id);
+  const observed_at = new Date(now.getTime() - 1200).toISOString();
+  const known = seed.availability_mode === "seat_map";
+
+  const availability: Record<string, unknown> = known
+    ? {
+      mode: "seat_map",
+      observed_at,
+      staleness_basis: "measured",
+      sold_out: false,
+      seats_available: seed.available,
+      seat_map_ref: `${seed.origin}/changeover/v0/occasions/${seed.occasion_id}/seatmap`,
+      max_staleness_ms: 30000,
+    }
+    // §2.9: neither sold out nor available. Every member that would imply one
+    // or the other is ABSENT, because a Server that filled them in with zeroes
+    // would be answering a question it cannot answer.
+    : { mode: "unknown", observed_at, staleness_basis: "unknown" };
+
+  const manner: Record<string, unknown> = {
+    presentation_classes: [...seed.presentation_classes],
+    ...(seed.occasion_classes === undefined ? {} : { occasion_classes: [...seed.occasion_classes] }),
+    register_version: "2026.1",
+    accessibility: {
+      open_captions: seed.open_captions,
+      captioning_devices: "no",
+      audio_description: "no",
+      assistive_listening: "yes",
+      wheelchair_spaces: "yes",
+      relaxed_environment: "no",
+      sensory_adjusted: "no",
+    },
+    ...(seed.note === undefined
+      ? {}
+      : {
+        note: {
+          body: prose(seed.note),
+          authored_by: "programmer",
+          authored_at: new Date(now.getTime() - 86_400_000).toISOString(),
+        },
+      }),
+  };
+
+  const document: Record<string, unknown> = {
+    changeover: "0.1",
+    occasion_id: seed.occasion_id,
+    revision: 1,
+    etag,
+    venue: {
+      id: seed.venue_id,
+      name: prose(seed.venue_name),
+      origin: seed.origin,
+      timezone: NZ_TIMEZONE,
+      locality: seed.locality,
+    },
+    auditorium: {
+      id: seed.auditorium_id,
+      seating: "allocated",
+      name: seed.auditorium_name,
+      capacity: seed.capacity,
+      ...(seed.why_this_room === undefined ? {} : { why_this_room: prose(seed.why_this_room) }),
+    },
+    work: { title: prose("The Conversation"), year: 1974, runtime_minutes: 113 },
+    instant: {
+      starts_at: instant.starts_at,
+      local_wall: instant.local_wall,
+      local_wall_offset: instant.local_wall_offset,
+      sales_cutoff_at: instant.sales_cutoff_at,
+    },
+    manner,
+    availability,
+    price_disclosure: "published",
+    offers: [
+      {
+        offer_id: seed.offer_id,
+        band: prose(seed.band),
+        currency: "NZD",
+        amount_minor: seed.amount_minor,
+        price_basis: { includes_mandatory_fees: true, includes_tax: true },
+      },
+    ],
+    substitution: {
+      cluster: seed.cluster,
+      policy: seed.policy,
+      accepts_substitute: (seed.accepts_substitute ?? []).map((e) => ({ ...e })),
+      not_substitutable_for: (seed.not_substitutable_for ?? []).map((e) => ({
+        occasion_id: e.occasion_id,
+        axis: e.axis,
+        reason_code: e.reason_code,
+        detail: prose(e.detail),
+      })),
+      derived_from: {
+        policy_id: "pol_aro_2026",
+        rule_ids: ["r-35mm-carrier"],
+        rule_version: "2026.1",
+      },
+    },
+    hold_policy: { ...NZ_HOLD_POLICY },
+    book_url: `${seed.origin}${seed.book_path}`,
+    server_time: now.toISOString(),
+  };
+
+  return {
+    occasion_id: seed.occasion_id,
+    revision: 1,
+    etag,
+    origin: seed.origin,
+    source: "reference",
+    // No `showtime_ref` is published, so the screening key is the Occasion's
+    // own id. §4.6's index is over `(showtime_id, seat_id)`, and where one
+    // listing maps to one screening the two identities coincide.
+    showtime_id: seed.occasion_id,
+    cluster: seed.cluster,
+    seating: "allocated",
+    capacity: seed.capacity,
+    availability_mode: seed.availability_mode,
+    starts_at: instant.starts_at,
+    local_wall: instant.local_wall,
+    local_wall_offset: instant.local_wall_offset,
+    sales_cutoff_at: instant.sales_cutoff_at,
+    document,
+    seats: seatGrid({ capacity: seed.capacity, per_row: seed.per_row, available: seed.available }),
+  };
+}
+
+/** The independent's own cluster. E3 scopes it to `(origin, cluster)`, so this
+ * string and {@link NZ_CLUSTER} could be equal and still make no claim about
+ * each other. They are different here so nobody has to know that to read it. */
+export const NZ_CLUSTER_INDEPENDENT = "the-conversation-2026-w35-otautahi";
+
+function nzSites(): readonly NzSiteSeed[] {
+  return [
+    {
+      // The print. What the customer chose, and the reason the other two are
+      // not interchangeable with it.
+      occasion_id: NZ_OCCASION.kereru,
+      origin: NZ_ORIGIN_CIRCUIT,
+      venue_id: "ven_kereru",
+      venue_name: "The Kererū",
+      locality: "Wellington",
+      auditorium_id: "aud_kereru_main",
+      auditorium_name: "The Main Room",
+      capacity: 312,
+      available: 96,
+      per_row: 24,
+      day_offset: 0,
+      hour: 19,
+      minute: 0,
+      presentation_classes: ["pres:35mm-4perf", "pres:sound-optical", "pres:reserved-seating"],
+      occasion_classes: ["occ:archival-print", "occ:final-run"],
+      open_captions: "no",
+      amount_minor: 2400,
+      offer_id: "off_kereru_full",
+      band: "General admission",
+      cluster: NZ_CLUSTER,
+      policy: "strict",
+      accepts_substitute: [],
+      not_substitutable_for: [
+        {
+          occasion_id: NZ_OCCASION.totara_4,
+          axis: "presentation_class",
+          reason_code: "carrier",
+          detail: "A digital projection is not a substitute for the print.",
+        },
+        {
+          occasion_id: NZ_OCCASION.totara_2,
+          axis: "presentation_class",
+          reason_code: "carrier",
+          detail: "A digital projection is not a substitute for the print.",
+        },
+      ],
+      availability_mode: "seat_map",
+      why_this_room: "The only four-perf projector still threaded south of the harbour.",
+      note: "Struck in 1974 and held in the vault since the last revival. This is the print, not a scan of it.",
+      book_path: "/tickets/kereru-fri-1900",
+    },
+    {
+      // The cheaper DCP, later the same night. It attests that the print is an
+      // acceptable substitute for IT — which is what makes it dominated, and
+      // which is NOT the same as being an acceptable substitute for the print.
+      occasion_id: NZ_OCCASION.totara_4,
+      origin: NZ_ORIGIN_CIRCUIT,
+      venue_id: "ven_totara",
+      venue_name: "Tōtara Cinemas",
+      locality: "Wellington",
+      auditorium_id: "aud_totara_4",
+      auditorium_name: "Cinema 4",
+      capacity: 180,
+      available: 154,
+      per_row: 18,
+      day_offset: 0,
+      hour: 21,
+      minute: 15,
+      presentation_classes: ["pres:dcp-2k-flat", "pres:sound-5-1", "pres:reserved-seating"],
+      open_captions: "no",
+      amount_minor: 1500,
+      offer_id: "off_totara_full",
+      band: "General admission",
+      cluster: NZ_CLUSTER,
+      policy: "strict",
+      accepts_substitute: [{ occasion_id: NZ_OCCASION.kereru, axis: "presentation_class" }],
+      not_substitutable_for: [],
+      availability_mode: "seat_map",
+      book_path: "/tickets/totara-4-fri-2115",
+    },
+    {
+      // A different night, open captions, and no attested edge in either
+      // direction. Incomparable, and therefore an option rather than a
+      // consolation.
+      occasion_id: NZ_OCCASION.totara_2,
+      origin: NZ_ORIGIN_CIRCUIT,
+      venue_id: "ven_totara",
+      venue_name: "Tōtara Cinemas",
+      locality: "Wellington",
+      auditorium_id: "aud_totara_2",
+      auditorium_name: "Cinema 2",
+      capacity: 180,
+      available: 171,
+      per_row: 18,
+      day_offset: 2,
+      hour: 14,
+      minute: 0,
+      presentation_classes: ["pres:dcp-2k-flat", "pres:sound-5-1", "pres:reserved-seating"],
+      open_captions: "yes",
+      amount_minor: 1200,
+      offer_id: "off_totara_matinee",
+      band: "Matinee",
+      cluster: NZ_CLUSTER,
+      policy: "strict",
+      accepts_substitute: [],
+      not_substitutable_for: [],
+      availability_mode: "seat_map",
+      book_path: "/tickets/totara-2-sun-1400",
+    },
+    {
+      // A different exhibitor, on a different origin, whose ticketing exposes no
+      // seat map. It is here to be refused honestly.
+      occasion_id: NZ_OCCASION.whitcombe,
+      origin: NZ_ORIGIN_INDEPENDENT,
+      venue_id: "ven_whitcombe",
+      venue_name: "The Whitcombe",
+      locality: "Ōtautahi Christchurch",
+      auditorium_id: "aud_whitcombe_1",
+      auditorium_name: "The Stalls",
+      capacity: 240,
+      available: 240,
+      per_row: 20,
+      day_offset: 1,
+      hour: 18,
+      minute: 30,
+      presentation_classes: ["pres:dcp-2k-flat", "pres:sound-5-1", "pres:reserved-seating"],
+      open_captions: "no",
+      amount_minor: 1400,
+      offer_id: "off_whitcombe_full",
+      band: "General admission",
+      cluster: NZ_CLUSTER_INDEPENDENT,
+      policy: "advisory",
+      accepts_substitute: [],
+      not_substitutable_for: [],
+      availability_mode: "unknown",
+      note: "Our seating is on the door. We publish the screening, not the map.",
+      book_path: "/tickets/whitcombe-sat-1830",
+    },
+  ];
+}
+
+/**
+ * The four-site estate, dated from `now`.
+ *
+ * Deterministic given `now`: the same reference instant produces the same ids,
+ * the same etags, the same seat grid and the same instants. That is what lets a
+ * demo assert a stable structural transcript across two runs while still
+ * printing the real times it actually took.
+ */
+export function nzFourSiteEstate(now: Date = new Date()): Estate {
+  // At least three days out, so `hold_expired` can be demonstrated by waiting
+  // rather than by moving a clock, and the sales cutoff is never the reason.
+  const anchor = nzAnchorFriday(now, NZ_TIMEZONE, 3);
+  return { name: "nz-four-site", occasions: nzSites().map((seed) => nzOccasion(seed, now, anchor)) };
+}
+
+/**
+ * The estate, built once at module load.
+ *
+ * Built rather than written down for the reason above, and built ONCE so that
+ * two seedings inside one process agree — an estate whose etags moved between
+ * the seed and the request would fail G2 for a reason that had nothing to do
+ * with anything under test.
+ */
+export const NZ_FOUR_SITE: Estate = nzFourSiteEstate();
+
+/** The sub-estate one exhibitor publishes. Two origins means two Servers. */
+export function occasionsAtOrigin(estate: Estate, origin: string): Estate {
+  return {
+    name: `${estate.name}@${origin}`,
+    occasions: estate.occasions.filter((o) => o.origin === origin),
+  };
+}
+
+/** One Occasion of an estate, by id. Throws rather than returning undefined:
+ * a reel that silently held nothing would print a transcript about nothing. */
+export function occasionOf(estate: Estate, occasion_id: string): OccasionSeed {
+  const found = estate.occasions.find((o) => o.occasion_id === occasion_id);
+  if (found === undefined) {
+    throw new Error(`fixtures: estate ${estate.name} publishes no ${occasion_id}`);
+  }
+  return found;
 }
