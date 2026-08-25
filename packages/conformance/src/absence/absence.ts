@@ -227,6 +227,10 @@ export function canarySelfTest(): Clause[] {
   return out;
 }
 
+/** Shapes that only exist inside the process: a stack frame, a path, an error class. */
+const INTERNAL_LEAK =
+  /(TypeError|ReferenceError|SyntaxError|RangeError)\b|\bat [A-Za-z$_][\w$]* \(|file:\/\/|\/Users\/|node:internal/;
+
 /** Literal fragments of the poisoned inputs, which a partial echo would carry. */
 const ECHO_FRAGMENTS = Object.freeze([
   POISON.email,
@@ -321,6 +325,21 @@ export function canaryClauses(
     dirty.length === 0
       ? held(`C-ABSENCE.4/${binding}_canary`, `${bodies.length} ${binding} response bodies carry no email, no E.164 string and no Luhn-valid 13–19 digit run`)
       : broke(`C-ABSENCE.4/${binding}_canary`, `PII reached the wire and the build fails rather than filtering it — ${dirty.join(" · ")}`),
+  );
+
+  // An internal error string on the wire is an uncontrolled prose channel to a
+  // consumer with no judgement — the thing §5.3 exists to prevent — and it is
+  // also how a value from inside the process reaches the outside without ever
+  // being a member of any document. This corpus deliberately includes a request
+  // that faults the handler, so the path is exercised rather than assumed.
+  const internals: string[] = [];
+  for (const body of bodies) {
+    if (INTERNAL_LEAK.test(body.text)) internals.push(body.label);
+  }
+  out.push(
+    internals.length === 0
+      ? held(`C-ABSENCE.4/${binding}_no_internals`, `no ${binding} body carries a stack frame, a filesystem path or a JavaScript error class name`)
+      : broke(`C-ABSENCE.4/${binding}_no_internals`, "an internal error string reached the wire: " + internals.join(" · ")),
   );
 
   const echoed: string[] = [];
