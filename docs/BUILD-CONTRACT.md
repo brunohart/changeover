@@ -161,7 +161,7 @@ Recorded at the Gate 1 integration so the next wave does not collide with it. Ev
 | `scripts/prove_pii_ingest.sh` | CORE-007 | **CORE-007** | P1 ingest refusal, proven at the boundary. **TEST-005 must not write this path** — its C-PII-INGEST class module is `packages/conformance/src/classes/c-pii-ingest.ts`, and its two proof scripts are `prove_injection_fails.sh` and `prove_hint_rejected.sh`. Extend this one or add a differently-named one. |
 | `packages/core/src/state.ts` · `packages/core/src/release-hold.ts` | CORE-003 | CORE-003 | Re-export shims under the names the backlog used. No second implementation — both forward to `derived.ts` / `release.ts`. |
 | `packages/core/test/lib/hold-fixtures.ts` | CORE-003 | CORE-003 | `mintHold()` puts a Hold directly into any of the six derived states, including *expired with nothing reaped*, which the grant verb cannot produce. **Now a shared dependency**: `prove_release_total.sh` names it as a precondition and other items will. Treat its signature as a contract. |
-| `scripts/prove_composition.sh` | integrator | integrator | The seams between modules, which no single item's proof can see. See §10. |
+| `scripts/prove_composition.sh` | integrator | integrator | The seams between modules, which no single item's proof can see. See §11. |
 
 ### The seam Gate 1 left open
 
@@ -645,7 +645,48 @@ node packages/cli/src/bin.ts <cmd>   # the CLI, locally
 
 ## 10 · The four rules that override everything here
 
-1. **You do not commit, and you do not run git.** No `add`, `commit`, `checkout`, `stash`, `push`. The integrator commits at each gate. Concurrent agents sharing one git index corrupt it.
+1. **You never run git directly** — no `add`, `commit`, `checkout`, `stash`, `push`, `rebase`. Concurrent agents sharing one git index corrupt it. You commit *continuously*, in small coherent units, through the mutex helper, which serialises `.git/index.lock` and restricts each commit to a pathspec so you cannot sweep up a neighbour's half-written file:
+
+   ```bash
+   bash scripts/dev/micro-commit.sh "<subject>" <path> [<path> ...]
+   ```
+
+   Exit codes: `0` committed · `1` nothing to commit (fine) · `2` lock timeout · `3` refused. Commit when a unit becomes **true** — a module, a migration, a proof script, a test file, a fix — not when your item ends. Pass explicit paths, never a bare `.` and never `-A`. Match the subject style already in `git log --oneline`: lowercase after the area prefix, saying what became true and, where there is room, why it matters. No conventional-commit prefixes; the helper refuses them.
 2. **You write only inside the globs §2 gives you.** Another agent owns every other path and is writing to it right now.
 3. **You do not run `npm install`.** Declare what is missing; make the affected assertion `exit 2`.
 4. **Never fake a pass.** `0` holds, `1` fails, `2` cannot prove. Deleting an assertion to make a suite green is the worst outcome available to you.
+
+---
+
+## 11 · The composition gate
+
+`scripts/prove_composition.sh` — 22 checks, exit 0, added at the Gate 1 integration.
+
+Every other proof in `scripts/` is written by the agent that owns the module under test, and each is honest about its own module. None of them can be honest about the **join**. CORE-005 wraps a verb it does not own; CORE-006 plugs a guard into a seam it did not declare; CORE-003 reads rows CORE-002 wrote; CORE-007 hashes a value CORE-005 also hashes. Each of those is a pair of files that typecheck independently and can still disagree at runtime — and nothing in the tree calls them together, because the two bindings that eventually will are still empty directories.
+
+`npx tsc --noEmit` passes on every one of those seams. A type is a claim about shape; these are claims about **values agreeing**: one digest projection, one seat order, one set of published numbers, one epoch key, one M1. The only way to see those is to run the stack.
+
+What it asserts, and why each one is a seam rather than a rule:
+
+| Assertion | The seam |
+|---|---|
+| The enforced policy and the published policy agree on every shared member; nothing enforced is unpublished | `guards.ts` clamps with `HOLD_POLICY_DEFAULTS`, `budgets.ts` publishes `HOLD_POLICY_PUBLISHED`. `budgets.ts` already refuses to load on drift — this makes the property legible instead of arriving as a module-init crash |
+| The published policy funds X6 at its own numbers | A `policy_max_floor_ms` below `handoff_gate_budget_ms + clock_guard_ms + headroom` makes a hand-off gate unsatisfiable at the numbers this Server actually ships |
+| `holdSeatsDigest(r) === requestDigest(decisionMembers(r))` | I3's binding parity is structural only while CORE-005 projects through CORE-002's exported `decisionMembers()`. If it ever re-derives `D` from a body, both bindings still work and they disagree |
+| Seats sort identically in `D`, in the lock order and in the granted document — asserted with `F:2, F:10`, where byte order and human order differ | Three modules hold an opinion about seat order. Handing them an already-sorted array asserts nothing |
+| The budget guard's `hold_slot` row exists after the grant | A guard that typechecks and no-ops passes every response-shaped assertion above it |
+| The replayed state, the `get_hold` state and `deriveState()` on the row are all one derivation | I4 re-projects state at replay; two M1s disagree the first time one of them learns a new marker |
+| `keyHmac(key) === epochHmac(epoch, key)`, and the raw key is nowhere in the log | The P2 seam of §2. Asserts the agreement so it cannot silently drift while `hmac.ts` is still unwritten |
+| Release frees exactly the seats the grant took, returns the budget slot, and the seats grant again | The loop closes — which is the whole product |
+
+It is single-connection and that is not a concession: every assertion is a property of one call through several modules. The concurrency assertions live in `prove_lock_order.sh`, `prove_idempotent_race.sh`, `prove_no_fanout_concurrent.sh` and `prove_migrations_pg.sh` and correctly exit 2 here.
+
+**When a binding lands, extend this file rather than writing a second one.** BIND-001 and BIND-002 both claim digest parity with core; this is where that claim becomes an assertion over one running stack.
+
+### One sharp edge it documents
+
+`deriveState()` declares `HoldFacts.expires_at` as an RFC 3339 **string**. A bare `select * from hold` hands it a `Date`, and the comparison then **silently returns `expired` for a live Hold** — no throw, because `Row` is `Record<string, unknown>` and the cast is unchecked. That is the exact failure M1 exists to prevent, arriving through the one seam the type system cannot see. Read the hold table through **`HOLD_COLUMNS`**, which CORE-003 exports for this and which renders every timestamp as RFC 3339. Every binding that touches the table directly must go through it.
+
+### A follow-up that is still open
+
+`packages/cli/src/bin.ts` now exists, so `packages/cli/package.json`'s `"bin": { "changeover": "./src/bin.ts" }` would link on the next `npm install` — but no agent may run one, so `node_modules/.bin/changeover` is still absent. The canonical local invocation remains `node packages/cli/src/bin.ts <cmd>`, which works today and prints `derive` and `lint`.
