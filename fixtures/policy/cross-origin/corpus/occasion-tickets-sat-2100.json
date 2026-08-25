@@ -1,0 +1,51 @@
+{
+  "changeover": "0.1",
+  "occasion_id": "occ_roxyplex_20260905T2100_s3",
+  "revision": 1,
+  "etag": "1:farnmEa0rT_1QtjatCJISTfVqN5UoQaexouMjJd88qg",
+  "venue": {
+    "id": "ven_roxyplex",
+    "name": { "content_type": "text/plain", "value": "Roxy Riverside" },
+    "origin": "https://tickets.roxy.example",
+    "timezone": "Pacific/Auckland",
+    "locality": "Auckland"
+  },
+  "auditorium": { "id": "aud_roxyplex_3", "seating": "allocated", "name": "Cinema 3", "capacity": 140 },
+  "work": { "title": { "content_type": "text/plain", "value": "The Conversation" }, "year": 1974, "runtime_minutes": 113 },
+  "instant": {
+    "starts_at": "2026-09-05T21:00:00+12:00",
+    "local_wall": "2026-09-05T21:00",
+    "local_wall_offset": "+12:00",
+    "sales_cutoff_at": "2026-09-05T21:15:00+12:00"
+  },
+  "manner": {
+    "presentation_classes": ["pres:dcp-2k-flat", "pres:sound-5-1", "pres:reserved-seating"],
+    "register_version": "2026.1",
+    "accessibility": {
+      "open_captions": "no", "captioning_devices": "yes", "audio_description": "no",
+      "assistive_listening": "yes", "wheelchair_spaces": "yes", "relaxed_environment": "no", "sensory_adjusted": "no"
+    }
+  },
+  "availability": {
+    "mode": "seat_map",
+    "observed_at": "2026-09-05T09:00:00.000+12:00",
+    "staleness_basis": "measured",
+    "sold_out": false,
+    "seats_available": 120,
+    "max_staleness_ms": 30000
+  },
+  "price_disclosure": "published",
+  "offers": [
+    { "offer_id": "off_roxyplex_full", "band": { "content_type": "text/plain", "value": "General admission" },
+      "currency": "NZD", "amount_minor": 1500,
+      "price_basis": { "includes_mandatory_fees": true, "includes_tax": true } }
+  ],
+  "substitution": {
+    "cluster": "the-conversation-akl-2026-w36",
+    "policy": "strict",
+    "accepts_substitute": [],
+    "not_substitutable_for": [],
+    "derived_from": { "policy_id": "pol_roxy_2026", "rule_ids": [], "rule_version": "2026.1" }
+  },
+  "server_time": "2026-09-05T09:00:00.412+12:00"
+}

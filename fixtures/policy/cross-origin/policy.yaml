@@ -1,0 +1,41 @@
+# The mistake E1 exists to catch, authored exactly as a real exhibitor would
+# make it.
+#
+# The Roxy runs an archival house and sells its multiplex sessions through a
+# ticketing partner. Half the catalogue is published with venue.origin at the
+# apex, half with venue.origin at the ticketing host — and both halves carry the
+# same cluster string, because to the programmer it is obviously one run of one
+# film in one city.
+#
+# It is not one cluster. E3 scopes `cluster` to (venue.origin, cluster): two
+# Publishers using one string have made no claim about each other. So every edge
+# this policy would draw crosses an origin boundary, E1 refuses it at publish,
+# and without lint the author would see their carefully authored
+# non-substitutability simply not appear.
+#
+#   changeover lint --policy fixtures/policy/cross-origin/policy.yaml \
+#                   --corpus fixtures/policy/cross-origin/corpus
+#   -> exit 1, E1_CROSS_ORIGIN
+#
+# The fix is not a flag. It is publishing both halves at one venue.origin, which
+# is what fixtures/golden/ does — one operator, one origin, an archival house
+# and a multiplex — or delegating from the apex, which is the only
+# origin-authority mechanism v0.1 has (SPEC.md 3.3).
+
+policy_id: "pol_roxy_2026"
+rule_version: "2026.1"
+
+rules:
+  - rule_id: "r-35mm-carrier"
+    subject: "pres:35mm-4perf"
+    relation: "not_substitutable_for"
+    object: "pres:dcp-*"
+    policy: "strict"
+    reason_code: "carrier"
+    detail:
+      content_type: "text/plain"
+      value: "A digital projection is not a substitute for the print."
+    authored_by: "venue"
+    authored_at: "2026-09-01T09:00:00+12:00"
+    effective_from: "2026-09-01"
+    effective_to: "2026-09-30"
