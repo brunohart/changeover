@@ -362,6 +362,8 @@ interface GrantContext {
 
 interface GrantedRow extends Row {
   hold_id: string;
+  /** What the store settled the floor at, after the sale-window clamp. */
+  floor_ms: number | string;
   granted_at: string;
   floor_deadline: string;
   expires_at: string;
@@ -988,22 +990,58 @@ async function insertHold(ctx: GrantContext): Promise<void> {
       retry_after_ms: 5000,
     });
   }
-  ctx.floor_ms = floor_ms;
   // T2: movable upward only, and never below the floor at grant.
   const expiry_ms = grantedExpiryMs(floor_ms, ctx.options.expiry_ms);
   ctx.hold_id = ctx.options.hold_id();
 
+  // The grant is clamped to the sale window, and the clamp is in SQL because
+  // the only clock this path may read is the store's (K4).
+  //
+  // G1 step 6 checks that `sales_cutoff_at` has not ALREADY passed. It never
+  // checked that the grant fits *inside* it, so a 300-second floor requested
+  // twenty seconds before the cutoff was granted an `expires_at` 280 seconds
+  // past the close of sale. T5 and CL4 then had no satisfiable reading —
+  // `min(handed_off_at + handoff_floor_ms, sales_cutoff_at)` is BELOW
+  // `expires_at`, T6 requires `claim_expires_at >= expires_at`, and
+  // `hold_claim_not_before_expiry` is a CHECK. `hand-off.ts` resolved the
+  // contradiction with `greatest(expires_at, …)`, which honoured T6 by
+  // defeating T5's clamp: measured against real Postgres, a claim window
+  // running 280,083 ms past the cutoff, a `confirm` answering 200 `claimed`
+  // after the sale had closed, and — because `claimed` is terminal and §4.6
+  // forbids reaping it — a seat gone from the house for the life of the
+  // screening on a claim CL3 says should have been `410 claim_expired`.
+  //
+  // The contradiction is removable at the grant, not at the hand-off. Clamp
+  // here and T5's `min()` and T6's `>=` are simultaneously satisfiable for
+  // every Hold this Server can mint.
+  //
+  // `where floor_ms >= HOLD_SCHEMA_MIN_FLOOR_MS` is how a hold requested inside
+  // the last second of the sale becomes `503 floor_unavailable`: the select
+  // yields no row, nothing is inserted, and the refusal below is the same one a
+  // floor the venue cannot warrant has always produced. A short floor granted
+  // quietly would be worse — the number is the only thing an Agent may plan
+  // against.
   const r = await tx(ctx).query<GrantedRow>(
     `insert into hold (hold_id, agent_id, principal_scope, origin, cluster, occasion_id,
                        occasion_etag, sought_occasion_id, showtime_id, seats,
                        granted_at, floor_ms, floor_deadline, expires_at)
      select $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::text[],
-            changeover_grant_clock.now,
-            $11::int,
-            changeover_grant_clock.now + ($11::int * interval '1 millisecond'),
-            changeover_grant_clock.now + ($12::int * interval '1 millisecond')
-       from ${GRANT_CLOCK_SUBQUERY}
-     returning hold_id, ${rfc3339Column("granted_at")}, ${rfc3339Column("floor_deadline")},
+            g.now,
+            g.floor_ms,
+            g.now + (g.floor_ms * interval '1 millisecond'),
+            greatest(
+              g.now + (g.floor_ms * interval '1 millisecond'),
+              least(g.now + ($12::int * interval '1 millisecond'),
+                    coalesce($13::timestamptz, 'infinity'::timestamptz)))
+       from (select changeover_grant_clock.now,
+                    least($11::bigint,
+                          case when $13::timestamptz is null then $11::bigint
+                               else floor(extract(epoch from
+                                      ($13::timestamptz - changeover_grant_clock.now)) * 1000)::bigint
+                          end)::int as floor_ms
+               from ${GRANT_CLOCK_SUBQUERY}) g
+      where g.floor_ms >= ${HOLD_SCHEMA_MIN_FLOOR_MS}
+     returning hold_id, floor_ms, ${rfc3339Column("granted_at")}, ${rfc3339Column("floor_deadline")},
                ${rfc3339Column("expires_at")}`,
     [
       ctx.hold_id,
@@ -1018,10 +1056,18 @@ async function insertHold(ctx: GrantContext): Promise<void> {
       ctx.seat_ids,
       floor_ms,
       expiry_ms,
+      held.sales_cutoff_at,
     ],
   );
   ctx.granted = r.rows[0] ?? null;
-  if (ctx.granted === null) throw new Error("hold_seats: the grant insert returned no row");
+  if (ctx.granted === null) {
+    throw refuse("floor_unavailable", "This venue cannot guarantee a hold that long right now.", {
+      retry_after_ms: 5000,
+    });
+  }
+  // The store, not the caller, settled what the floor is. Everything downstream
+  // — the returned document, X5's report, C-FLOOR's cohort — reads this.
+  ctx.floor_ms = Number(ctx.granted.floor_ms);
 }
 
 /* ── 11 · Small things, kept out of the runners ────────────────────────────── */
