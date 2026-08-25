@@ -30,6 +30,7 @@ import { C_ATOMIC_PROFILE, mulberry32, seedNumber, seededShuffle } from "./profi
 import {
   ATOMIC_SHOWTIME,
   LISTING,
+  LISTINGS,
   UNKNOWN_SEAT,
   atomicEstate,
   atomicSeatIds,
@@ -43,6 +44,7 @@ import {
   codeSummary,
   contend,
   occupantsOf,
+  physicalOversell,
   raceAll,
   rowsOfHold,
   tally,
@@ -202,10 +204,20 @@ export async function raceHouse(
 
   c.oversold === 0
     ? report.ok(
-        ".1 — zero oversell, read from the store: no (showtime_id, seat_id) is carried by two occupying rows, " +
-          "across BOTH listings of the one screening",
+        ".1 — zero oversell, read from the store: no (showtime_id, seat_id) is carried by two occupying rows",
       )
     : report.bad(`.1 — ${c.oversold} seats are held twice at one showtime — the house sold a seat twice`);
+
+  const physical = await physicalOversell(db, LISTINGS);
+  physical === 0
+    ? report.ok(
+        ".1 — and zero oversell of the PHYSICAL auditorium, counted without consulting showtime_id at all: " +
+          "no seat of the one screening is held by two Holds across its two listings",
+      )
+    : report.bad(
+        `.1 — ${physical} seats of the one physical screening are held twice across its two listings — the ` +
+          "floor is keyed on the listing, so the house sold each of them once at each price band",
+      );
 
   c.partial === 0
     ? report.ok(".1 — zero partial holds: no Hold carries some of its granted seats and not the rest")
@@ -351,8 +363,11 @@ export async function raceExpiryBoundary(
     ? report.ok(`.2 — all ${profile.trials} contenders were answered (${t.grants} grants, ${codeSummary(t)})`)
     : report.bad(`.2 — ${t.grants + t.refusals} of ${profile.trials} contenders were answered`);
 
-  c.oversold === 0
-    ? report.ok(".2 — zero oversell across the boundary: a reaped seat was re-held once, never twice")
+  c.oversold === 0 && (await physicalOversell(db, LISTINGS)) === 0
+    ? report.ok(
+        ".2 — zero oversell across the boundary, by (showtime_id, seat_id) and by physical seat alike: a " +
+          "reaped seat was re-held once, never twice",
+      )
     : report.bad(`.2 — ${c.oversold} seats carried two occupying rows after the boundary race`);
 
   c.partial === 0
