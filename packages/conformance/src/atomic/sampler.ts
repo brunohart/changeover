@@ -88,3 +88,69 @@ export async function startSampler(interval_ms = 2): Promise<Sampler | null> {
     },
   };
 }
+
+/* ── An unreachable server is not a failed floor ───────────────────────────── */
+
+const UNREACHABLE = new Set([
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ETIMEDOUT",
+  "EPIPE",
+  // 57P01 admin shutdown, 57P03 cannot connect now, 53300 too many clients.
+  "57P01",
+  "57P03",
+  "53300",
+  "08006",
+  "08003",
+  "08001",
+]);
+
+/**
+ * Did this error mean *we could not reach your server*, rather than *your
+ * server violated the floor*?
+ *
+ * Found the hard way, and it was a defect in this harness rather than in the
+ * boundary. The `postgres:18` container was started with `--rm`; when it went
+ * away mid-suite, every contender came back `ECONNREFUSED`, the tally counted
+ * two hundred unclassified faults, and `prove_no_oversell.sh` exited **1**. It
+ * reported that CHANGEOVER had overselled a house it had never been asked
+ * about. That is the precise inversion the three exit codes exist to prevent,
+ * and a red suite that sends someone hunting a race in correct code is worse
+ * than an honest `cannot prove`.
+ */
+export function isUnreachable(err: unknown): boolean {
+  const seen = new Set<unknown>();
+  let cursor: unknown = err;
+  while (cursor !== null && cursor !== undefined && !seen.has(cursor)) {
+    seen.add(cursor);
+    const e = cursor as { code?: unknown; errors?: unknown; cause?: unknown };
+    if (typeof e.code === "string" && UNREACHABLE.has(e.code)) return true;
+    if (Array.isArray(e.errors) && e.errors.some((inner) => isUnreachable(inner))) return true;
+    cursor = e.cause;
+  }
+  return false;
+}
+
+export class ServerVanished extends Error {
+  constructor(where: string) {
+    super(
+      `the Postgres at CHANGEOVER_PG_URL stopped answering during ${where}, so nothing was measured`,
+    );
+    this.name = "ServerVanished";
+  }
+}
+
+/**
+ * Open the race pool and make it prove it is there.
+ *
+ * `pg.Pool` connects lazily, so a successful `openDb` against a dead server is
+ * a handle that will fail at the first statement — several assertions later,
+ * dressed as a product failure.
+ */
+export async function openLiveRaceStore(poolSize: number): Promise<Db> {
+  const db = await openRaceStore(poolSize);
+  await db.query("select 1");
+  return db;
+}
