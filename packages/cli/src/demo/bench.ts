@@ -78,6 +78,8 @@ export interface ExhibitorOptions {
   /** Trials × probe floor is most of this Server's boot time. See the note above. */
   readonly floor_trials: number;
   readonly probe_floor_ms: number;
+  /** Keys the claim-token MAC. Explicit so the link-scanner reel can present one. */
+  readonly claim_secret: string;
 }
 
 export interface Exhibitor {
@@ -92,6 +94,7 @@ export interface Exhibitor {
   readonly measurement: RetentionMeasurement;
   /** The policy this Server both enforces and publishes. One object (§2.5). */
   readonly policy: HoldPolicyDocument;
+  readonly claim_secret: string;
   close(): Promise<void>;
 }
 
@@ -162,6 +165,7 @@ export async function bootExhibitor(options: ExhibitorOptions): Promise<Exhibito
       // transcript about a configuration file.
       budgets: principalBudgets(policy),
     },
+    hand_off: { claim_secret: options.claim_secret },
   });
 
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -177,6 +181,7 @@ export async function bootExhibitor(options: ExhibitorOptions): Promise<Exhibito
     estate,
     measurement,
     policy,
+    claim_secret: options.claim_secret,
     async close() {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await db.close();
@@ -216,6 +221,7 @@ export async function bootBench(options: BenchOptions = {}): Promise<Bench> {
       contact: "boxoffice@aro-circuit.example",
       floor_trials: options.floor_trials ?? 2,
       probe_floor_ms: options.probe_floor_ms ?? 15000,
+      claim_secret: "demo-claim-key-aro-circuit",
     }),
     bootExhibitor({
       site_id: "site_whitcombe",
@@ -229,6 +235,7 @@ export async function bootBench(options: BenchOptions = {}): Promise<Bench> {
       // because §7 addresses Servers and not the ones that happen to be busy.
       floor_trials: 1,
       probe_floor_ms: 4000,
+      claim_secret: "demo-claim-key-whitcombe",
     }),
   ]);
 
