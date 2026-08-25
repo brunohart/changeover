@@ -250,3 +250,32 @@ export async function raceAll(
     overlap: summed_ms / span_ms,
   };
 }
+
+/**
+ * Seats of ONE physical auditorium held more than once, counted **without
+ * consulting `showtime_id` at all**.
+ *
+ * `census().oversold` groups by `(showtime_id, seat_id)` and therefore restates
+ * the key `hold_seat_occupied` is built on. That is worth asserting and it is
+ * not enough: an implementation that keyed the floor on `occasion_id` — which
+ * is what ADR-005 originally wrote, and the divergence survived review because
+ * every golden fixture omits `showtime_ref` — writes two rows whose
+ * `showtime_id`s differ, and a group-by on that pair finds no duplicate. The
+ * house has sold seat `A:1` twice and the oversell counter reads zero.
+ *
+ * This one is given the listings by the FIXTURE, so it answers the question the
+ * customer would ask: is anyone else sitting there? Measured against the
+ * negative control — the two listings given distinct `showtime_id`s — it goes
+ * to 100 while `census().oversold` stays at 0.
+ */
+export async function physicalOversell(db: Db, listing_ids: readonly string[]): Promise<number> {
+  return scalar(
+    db,
+    `select count(*)::text as n from (
+       select s.seat_id from hold_seat s
+         join hold h on h.hold_id = s.hold_id
+        where s.state in ${OCCUPYING} and h.occasion_id = any($1::text[])
+        group by s.seat_id having count(*) > 1) d`,
+    [listing_ids],
+  );
+}
