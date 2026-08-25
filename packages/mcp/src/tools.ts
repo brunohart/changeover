@@ -227,6 +227,91 @@ const RESOLVE_OCCASIONS_OUTPUT: JsonObject = {
 
 const HOLD_OUTPUT: JsonObject = HOLD_BUNDLE;
 
+/**
+ * SEP-2322's `InputRequiredResult`, as a schema — and the reason it lives
+ * inside an `outputSchema` rather than beside one.
+ *
+ * MCP 2026-07-28 gives `InputRequiredResult` its own result type, outside the
+ * tool-output contract. The installed SDK (1.30.0) has no such type and does
+ * enforce the rule that a tool declaring an `outputSchema` MUST return
+ * `structuredContent` matching it — measured, not assumed: the client throws
+ * `-32602` otherwise. So on this SDK a gated `hold_seats` really does return
+ * one of two documents, and a schema claiming it returns only a Hold would be
+ * a schema its own Server violates on the first gated call. That is §6.2's
+ * failure — *"emitted a Hold that failed its own schema"* — with the gate
+ * standing where the `intent_digest` stood.
+ *
+ * X6a is enforced structurally: `prompt` is a **prose envelope** and the six
+ * structured members are `required`, so an `inputRequest` carrying only a
+ * sentence does not validate. *"A conforming Agent renders from the structure
+ * and the free text is a caption, not the contract."*
+ */
+const INPUT_REQUIRED_SCHEMA: JsonObject = {
+  type: "object",
+  additionalProperties: false,
+  required: ["input_required", "stage", "inputRequests"],
+  properties: {
+    input_required: { const: true },
+    stage: { enum: ["hold", "handoff", "none"] },
+    inputRequests: {
+      type: "array",
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "prompt",
+          "seat_count",
+          "venue_name",
+          "local_wall",
+          "presentation_classes",
+          "amount_minor",
+          "currency",
+        ],
+        properties: {
+          prompt: commonDefs.prose as JsonObject,
+          seat_count: { type: "integer", minimum: 0 },
+          venue_name: { type: "string", maxLength: 256 },
+          local_wall: { type: "string", maxLength: 32 },
+          presentation_classes: {
+            type: "array",
+            maxItems: 16,
+            items: { type: "string", maxLength: 64 },
+          },
+          // `null` at `price_disclosure: at_checkout`. A gate that invented a
+          // number rather than admitting it had none would be quoting one.
+          amount_minor: { type: ["integer", "null"], minimum: 0 },
+          currency: { type: ["string", "null"], pattern: "^[A-Z]{3}$" },
+        },
+      },
+    },
+  },
+};
+
+const HOLD_EMBEDDED = embed(HOLD_BUNDLE);
+
+/**
+ * A Hold, or a gate. Exactly one of them: `hold.schema.json` is
+ * `additionalProperties: false` and requires fourteen members, and the gate
+ * schema is closed around three, so no document satisfies both and this
+ * `oneOf` cannot go ambiguous.
+ *
+ * `get_hold` keeps the unwidened Hold schema. It never gates — there is no
+ * stage at which reading a Hold asks a human anything — and widening it would
+ * be declaring a return this tool cannot make.
+ */
+const HOLD_OR_GATE: JsonObject = {
+  $schema: DIALECT_2020_12,
+  // `type: "object"` at the root is not decoration: the protocol's own
+  // `ToolSchema` requires it, and a bare `oneOf` is rejected at `tools/list`
+  // before any tool is ever called. Measured against SDK 1.30.0, which answers
+  // `Invalid input: expected "object"` at `tools/1/outputSchema/type`.
+  type: "object",
+  oneOf: [HOLD_EMBEDDED.schema, INPUT_REQUIRED_SCHEMA],
+  $defs: HOLD_EMBEDDED.defs,
+};
+
 const RELEASE_HOLD_OUTPUT: JsonObject = {
   $schema: DIALECT_2020_12,
   type: "object",
@@ -275,7 +360,7 @@ export const TOOLS: readonly ToolDefinition[] = Object.freeze([
     description:
       "Hold named seats for a stated, irrevocable window, then hand the customer back to the exhibitor's own checkout with the seats still there. Grants nothing else: this boundary does not settle, and holding is not buying.",
     inputSchema: HOLD_SEATS_INPUT,
-    outputSchema: HOLD_OUTPUT,
+    outputSchema: HOLD_OR_GATE,
   },
   {
     name: "get_hold",
@@ -299,7 +384,7 @@ export const TOOLS: readonly ToolDefinition[] = Object.freeze([
     description:
       "End the agent's part: mint a single-consumption claim URL for the customer to open in the exhibitor's own checkout, with the seats still held. Requires the read_token from a fresh get_hold.",
     inputSchema: HAND_OFF_INPUT,
-    outputSchema: HOLD_OUTPUT,
+    outputSchema: HOLD_OR_GATE,
   },
 ]);
 
