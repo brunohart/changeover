@@ -1,0 +1,26 @@
+{
+  "fixture": "dst-fold",
+  "timezone": "Pacific/Auckland",
+  "transition": "NZDT ends. At 2027-04-04T03:00 local the clocks go back to 02:00, so every local wall time from 02:00 to 02:59 happens twice.",
+  "why_it_is_here": "Cinemas run marathons through 2am. Two genuinely distinct screenings sit at the same local_wall one hour apart, and a natural key that does not carry local_wall_offset collides them: the second overwrites the first, and a measurement series is quietly missing a screening that cannot be back-filled later.",
+  "local_wall": "2027-04-04T02:30",
+  "separation_ms": 3600000,
+  "sessions": [
+    {
+      "label": "the first 02:30, still on daylight time",
+      "occasion_id": "occ_dst_fold_nzdt",
+      "instant_utc": "2027-04-03T13:30:00Z",
+      "starts_at": "2027-04-04T02:30:00+13:00",
+      "local_wall": "2027-04-04T02:30",
+      "local_wall_offset": "+13:00"
+    },
+    {
+      "label": "the second 02:30, one hour later, on standard time",
+      "occasion_id": "occ_dst_fold_nzst",
+      "instant_utc": "2027-04-03T14:30:00Z",
+      "starts_at": "2027-04-04T02:30:00+12:00",
+      "local_wall": "2027-04-04T02:30",
+      "local_wall_offset": "+12:00"
+    }
+  ]
+}
