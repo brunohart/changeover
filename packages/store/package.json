@@ -1,0 +1,15 @@
+{
+  "name": "@changeover/store",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Db interface and its two drivers (PGlite, node-postgres), plus the migrations.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.7",
+    "pg": "8.23.0"
+  }
+}
