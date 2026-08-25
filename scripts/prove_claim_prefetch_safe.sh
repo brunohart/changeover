@@ -230,21 +230,43 @@ try {
 
   /* ── CL5 — the log learns the fact and never the token ────────────────── */
 
+  // The natural_key carries a per-run nonce. The log is append-only and nothing
+  // here may delete from it, so a fixed key is a 23505 on the second run against
+  // a durable server — and the log ingest is idempotent on it INCLUDING the
+  // offset, which is the property being relied on, not worked around.
+  const RUN = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
   const observed_at = await serverTime(db);
   for (const verb of ["hand_off", "claim_render", "claim_confirm"]) {
     await writeAccessLog(db, {
       verb, outcome: "ok",
       agent_id: CREDENTIAL.agent_id, principal_scope: CREDENTIAL.principal_scope,
       hold_id: first.hold_id, occasion_id: VENUE.occasion_id,
-      natural_key: "claim-proof-" + verb,
+      natural_key: "claim-proof-" + RUN + "-" + verb,
     }, observed_at, LOG);
   }
   const nonce = presented.claim_token.split(".")[0];
-  const log_rows = (await db.query("select row_to_json(t)::text as row from changeover_log.access_log t")).rows;
-  const leaked_log = log_rows.filter((r) => r.row.includes(presented.claim_token) || r.row.includes(nonce)).length;
-  log_rows.length === 3 && leaked_log === 0
+  // Two different questions, deliberately scoped differently.
+  //
+  // "Three invocations are in the log" is a claim about the rows THIS run wrote,
+  // so it counts those. It used to count every row in changeover_log.access_log
+  // and require exactly 3 — true only of the fresh database PGlite hands out.
+  // Against a durable Postgres the count was whatever every earlier script had
+  // appended, and the script printed "the access log has 6 rows and 0 carrying
+  // the token" — a FAIL whose own parenthetical says the property held. The
+  // append-only log is deliberately never truncated, so the count had to move,
+  // not the log.
+  //
+  // "The token appears in no row" is a claim about the WHOLE log and stays
+  // global — a leak into any row, written by anything, is the failure.
+  const mine = (await db.query(
+    "select row_to_json(t)::text as row from changeover_log.access_log t where natural_key like $1",
+    ["claim-proof-" + RUN + "-%"],
+  )).rows;
+  const all_rows = (await db.query("select row_to_json(t)::text as row from changeover_log.access_log t")).rows;
+  const leaked_log = all_rows.filter((r) => r.row.includes(presented.claim_token) || r.row.includes(nonce)).length;
+  mine.length === 3 && leaked_log === 0
     ? ok("CL5 — three invocations are in the access log, including the hand-off and both claim calls, and the token appears in none of them")
-    : bad("the access log has " + log_rows.length + " rows and " + leaked_log + " carrying the token");
+    : bad("this run wrote " + mine.length + " of 3 expected log rows, and " + leaked_log + " of " + all_rows.length + " rows carry the token");
 
   let leaked_store = 0;
   for (const table of ["hold", "hold_seat", "hold_cluster", "hold_slot", "idempotency", "occasion"]) {
