@@ -56,7 +56,7 @@ import type { HoldPolicyDocument } from "@changeover/core/budgets.ts";
 import { serverTime } from "@changeover/core/clock.ts";
 import { HOLD_COLUMNS, HOLD_STATE, deriveState } from "@changeover/core/derived.ts";
 import type { HoldRow, HoldState } from "@changeover/core/derived.ts";
-import { holdSeats } from "@changeover/core/hold-seats.ts";
+import { assertHoldSeatsShape, holdSeats } from "@changeover/core/hold-seats.ts";
 import type { Credential, HoldSeatsOptions, HoldSeatsRequest } from "@changeover/core/hold-seats.ts";
 import { getHold } from "@changeover/core/get-hold.ts";
 import type { GetHoldOptions } from "@changeover/core/get-hold.ts";
@@ -247,12 +247,23 @@ export async function handle(
     // An internal fault MUST NOT reach the wire with its message: an error
     // string is an uncontrolled prose channel to a consumer with no judgement.
     // The operator gets the stack; the caller gets a code and a backoff.
-    (options.access_log ?? NO_ACCESS_LOG).record({ route: "unknown", outcome: "error" });
     logInternal(err);
-    const fault = refuse("upstream_unavailable", "This Server could not complete that request.", {
-      retry_after_ms: 5000,
-    });
-    return stamped(problemResponse(fault.code, problemOf(fault.toDocument(now))), now);
+    // NOT `upstream_unavailable`. §6.3 defines that code as "The exhibitor's own
+    // system is down. Never a guess." — so rendering an internal fault as one is
+    // a false statement about a third party, and the `retry_after` remediation
+    // attached to it tells a conforming Agent to retry, forever, on a five-second
+    // cadence, a request that may be permanently malformed. The refusal taxonomy
+    // is closed and has no internal-error member, which is the correct answer
+    // rather than a gap: this is not a refusal. It is RFC 9457 `about:blank`,
+    // exactly as the 404 and 405 paths above already are.
+    return stamped(
+      {
+        status: 500,
+        headers: { "Content-Type": PROBLEM_CONTENT_TYPE },
+        body: blankProblem(500, "Internal Server Error", now),
+      },
+      now,
+    );
   }
 }
 
@@ -590,7 +601,22 @@ function writeBody(
     if (!known.includes(member)) {
       // V3: a Server MUST reject unknown members in write bodies. A silently
       // ignored write field is a correctness hazard wearing tolerance's clothes.
-      throw refuse("schema_validation", `This verb has no member "${member}".`);
+      //
+      // The member NAME is caller-controlled and is NEVER interpolated. Until
+      // 2026-08-26 it was, and a body whose extra member name was the payload
+      // put injected instruction text, a Luhn-valid PAN, an address, an E.164
+      // number, `javascript:` and raw C0 controls into `refusal.reason` — the
+      // Server re-emitting an attacker's bytes as its own words, to a consumer
+      // with no judgement. That breaks PR3 (never pass text into `reason`
+      // without re-typing it to a code), PR2, §5.1 Lock 4, and the whole thesis
+      // of §5.3. §2.7's `detail` oneOf has no schema_validation branch, so the
+      // offending name has nowhere legal to go either. The accepted members are
+      // a server-authored constant, so naming those says everything a caller
+      // can act on.
+      throw refuse(
+        "schema_validation",
+        `This verb accepts only these members: ${known.join(", ")}.`,
+      );
     }
   }
   return { body: stripped.body, ignored: stripped.ignored };
@@ -648,6 +674,20 @@ function holdSeatsOptions(options: ServerOptions, profile: Profile): HoldSeatsOp
   };
 }
 
+/**
+ * Project a request digest, or refuse. A throw out of `jcs()` or
+ * `decisionMembers()` means the body was not the shape they assume — which is a
+ * `400`, never a `503`.
+ */
+function digestOrRefuse(project: () => string): string {
+  try {
+    return project();
+  } catch (err) {
+    if (isRefusal(err)) throw err;
+    throw refuse("schema_validation", "That request body is not the shape this verb takes.");
+  }
+}
+
 async function serveHoldSeats(
   options: ServerOptions,
   request: HttpRequestLike,
@@ -669,6 +709,19 @@ async function serveHoldSeats(
     );
   }
 
+  // G1 step 2, BEFORE anything reads the request for any other purpose.
+  //
+  // `holdSeatsDigest` projects `D` out of the body, and `decisionMembers`
+  // dereferences `request.sought.occasion_id`. On a body missing `sought` that
+  // is a TypeError, thrown from inside the idempotency wrapper, caught by the
+  // handler's catch-all, and — until 2026-08-26 — rendered `503
+  // upstream_unavailable` with a retry instruction. `writeBody` above checks
+  // JSON-ness and member NAMES only; it never checked a type or a presence.
+  // I8 is not breached by moving the check here: I8 orders idempotency before
+  // STATE guards, and G1 puts `schema_validation` at step 2, ahead of all of
+  // them.
+  assertHoldSeatsShape(body);
+
   const key = idempotencyKey(request, "hold_seats") as string;
   const credential: Credential = credentialOf(site_credential);
   const verb_request = body as unknown as HoldSeatsRequest;
@@ -682,7 +735,10 @@ async function serveHoldSeats(
       verb: "hold_seats",
       idempotency_key: key,
     },
-    holdSeatsDigest(verb_request),
+    // Belt and braces. `assertHoldSeatsShape` above makes this total, and the
+    // wrapper stays because no defect in a caller's projection should ever be
+    // able to reach the wire as a statement about the exhibitor's system.
+    digestOrRefuse(() => holdSeatsDigest(verb_request)),
     () => holdSeats(options.db, verb_request, credential, grant),
   );
 
