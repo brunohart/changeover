@@ -128,12 +128,39 @@ try {
 
   const db = await requireConcurrentDb();
   try {
+    // A FRESH Hold for the race, and the reason is worth stating: section 2
+    // above confirms `presented` in order to record the statements the confirm
+    // issues, which CLAIMS it. Racing that same Hold would race a consumed
+    // claim, both racers would correctly answer `claim_consumed`, and the
+    // assertion below could never hold — the proof would report a product
+    // failure that was its own setup error, which is worse than no proof at
+    // all. Found on 2026-08-25, the first time this script ran against a real
+    // multi-connection Postgres; it had never been reachable on PGlite.
+    const contended = await mintHold(db, {
+      occasion: VENUE,
+      hold_id: holdIdFor("race-contended"),
+      state: HOLD_STATE.live,
+      // Distinct seats, because `hold_seat_occupied` is keyed on
+      // (showtime_id, seat_id) and the Hold above already occupies the first
+      // two at this showtime. Reusing them would raise 23505 from the index
+      // rather than from the race — the constraint doing exactly its job, on
+      // the wrong question.
+      seats: VENUE.seats.slice(2, 4).map((seat) => seat.seat_id),
+    });
+    const contended_read = await getHold(db, contended.hold_id, CREDENTIAL);
+    const contended_handed = await handOff(
+      db,
+      { hold_id: contended.hold_id, read_token: contended_read.read_token },
+      CREDENTIAL,
+    );
+    const contested = parseClaimUrl(contended_handed.hold.handoff.claim_url);
+
     // Two real backends confirming the same claim at once. Exactly one may end
     // in `claimed`; the other must be 409 claim_consumed, and the store must
     // carry one claimed_at rather than two.
     const both = await Promise.all([
-      confirmClaim(db, presented, { binding_ref: "sess_phone" }),
-      confirmClaim(db, presented, { binding_ref: "sess_laptop" }),
+      confirmClaim(db, contested, { binding_ref: "sess_phone" }),
+      confirmClaim(db, contested, { binding_ref: "sess_laptop" }),
     ]);
     const winners = both.filter((o) => o.ok === true).length;
     const consumed = both.filter((o) => o.ok === false && o.code === "claim_consumed").length;
