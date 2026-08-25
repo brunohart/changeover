@@ -46,7 +46,7 @@ import type { IdempotencyScope } from "@changeover/core/idempotency.ts";
 import type { Check, ClassResult } from "./contract.ts";
 import { assert, broke } from "./contract.ts";
 import type { LifecycleBench } from "./bench.ts";
-import { etagFor, expiredInStore, lifecycleBench, lifecycleOccasion, runId, sleep } from "./bench.ts";
+import { ESTATE_VANISHED, estateIntact, etagFor, expiredInStore, lifecycleBench, lifecycleOccasion, runId, sleep } from "./bench.ts";
 
 const AGENT = "agt_t003idem";
 const GRANT_FLOOR_MS = 1500;
@@ -247,6 +247,14 @@ export async function cIdempotent(options: IdempotentOptions = {}): Promise<Clas
         String(replayed9Record.state),
     ));
   } catch (err) {
+    // §12 first, before anything is called a defect: on a shared store another
+    // process's reset takes the Occasion, and every downstream symptom then
+    // looks like a boundary failure. A missing Occasion is cannot-prove; a
+    // missing row under a standing Occasion is a failure.
+    if (!(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)))) {
+      await b.close();
+      return { id: "C-IDEMPOTENT", checks: [], notes, unprovable: ESTATE_VANISHED };
+    }
     checks.push(broke("the scenario did not complete: " + message(err)));
   } finally {
     await b.close();
