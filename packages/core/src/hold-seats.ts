@@ -88,6 +88,7 @@ import {
   serverTime,
 } from "./clock.ts";
 import { lockSeats, sortCSeats } from "./locking.ts";
+import { requireValidIntentDigest } from "./access-log.ts";
 
 /* ── 1 · The request, the credential, and the Hold ─────────────────────────── */
 
@@ -386,24 +387,28 @@ async function readOccasion(q: Queryable, occasion_id: string): Promise<Occasion
   return r.rows[0] ?? null;
 }
 
-const RUNNERS: Readonly<Record<GuardName, GuardRunner>> = {
-  /* 1 · Does this Server implement the operation at all? §6.3: "e.g. a hold
-   *     verb against Profile 0." Decided from the deployment, before the store. */
-  async profile(ctx) {
-    if (ctx.options.profile === "0") {
-      throw refuse(
-        "profile_not_supported",
-        "This venue publishes its screenings but does not hold seats.",
-      );
-    }
-  },
-
-  /* 2 · Request shape, including W2 — and W2's whole point is that it lands
-   *     HERE, before any lock is taken. Otherwise ["F:11","F:11"] trips the
-   *     primary key, is reported as seat_contended, and the Agent loops forever
-   *     re-resolving a seat that was free the entire time. */
-  async schema(ctx) {
-    const { request } = ctx;
+/**
+ * G1 step 2, as a function a **binding** can call before it touches the request
+ * for any other purpose.
+ *
+ * It lives in core, not in `packages/http`, for the reason §6.2 gives: every
+ * constraint MUST be identical across the bindings, and a rule with two
+ * implementations is a rule with two behaviours. MCP inherited its validation
+ * from the tool `inputSchema` and HTTP inherited none, so until 2026-08-26 the
+ * same malformed call was `400 schema_validation` over MCP and `503
+ * upstream_unavailable` over HTTP — a false statement about the exhibitor's
+ * system, with a five-second retry instruction attached to a request that could
+ * never succeed. That is the `KEY_MAX_LENGTH` divergence this repository found
+ * and fixed at Gate 2, wearing a different member.
+ *
+ * `RUNNERS.schema` still calls it, so G1 step 2 runs unchanged for a core
+ * caller that never went through a binding.
+ */
+export function assertHoldSeatsShape(value: unknown): asserts value is HoldSeatsRequest {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw refuse("schema_validation", "A hold_seats request is a JSON object.");
+  }
+  const request = value as HoldSeatsRequest;
     const bad = (why: string): never => {
       throw refuse("schema_validation", why);
     };
@@ -441,7 +446,6 @@ const RUNNERS: Readonly<Record<GuardName, GuardRunner>> = {
       if (new Set(seats).size !== seats.length) {
         bad("seats must be unique; a repeated identifier is not a second seat.");
       }
-      ctx.seat_ids = sortCSeats(seats);
     } else {
       const selection = request.selection as Selection;
       if (selection.mode !== "best_available") {
@@ -455,6 +459,43 @@ const RUNNERS: Readonly<Record<GuardName, GuardRunner>> = {
     if (!Number.isInteger(request.requested_floor_ms) || request.requested_floor_ms < HOLD_SCHEMA_MIN_FLOOR_MS) {
       bad(`requested_floor_ms must be an integer of at least ${HOLD_SCHEMA_MIN_FLOOR_MS} milliseconds.`);
     }
+
+  // D3, and it belongs here rather than in a binding for the reason D3 itself
+  // gives: it holds "in both bindings". `requireValidIntentDigest` was written
+  // at CORE-007, is correct, and until 2026-08-26 had exactly one caller in the
+  // tree — its own unit test. MCP was protected by INTENT_DIGEST_SCHEMA in the
+  // tool's inputSchema; HTTP was protected by nothing, so
+  // `intent_digest: "sarah.chen@gmail.com"` was refused over one binding and
+  // granted a Hold over the other. §6.2 names that exact failure as its worked
+  // example. One implementation, both bindings, one behaviour.
+  if (request.intent_digest !== undefined) {
+    requireValidIntentDigest(request.intent_digest as string);
+  }
+}
+
+
+const RUNNERS: Readonly<Record<GuardName, GuardRunner>> = {
+  /* 1 · Does this Server implement the operation at all? §6.3: "e.g. a hold
+   *     verb against Profile 0." Decided from the deployment, before the store. */
+  async profile(ctx) {
+    if (ctx.options.profile === "0") {
+      throw refuse(
+        "profile_not_supported",
+        "This venue publishes its screenings but does not hold seats.",
+      );
+    }
+  },
+
+  /* 2 · Request shape, including W2 — and W2's whole point is that it lands
+   *     HERE, before any lock is taken. Otherwise ["F:11","F:11"] trips the
+   *     primary key, is reported as seat_contended, and the Agent loops forever
+   *     re-resolving a seat that was free the entire time. */
+  async schema(ctx) {
+    assertHoldSeatsShape(ctx.request);
+    // Seat ORDER is the runner's business, not the shape check's: C-sorting is
+    // what L1 locks in and what I3 digests, and both are properties of this
+    // call rather than of the document's validity.
+    if (ctx.request.seats !== undefined) ctx.seat_ids = sortCSeats(ctx.request.seats);
   },
 
   /* 3 · Is the Occasion published at this origin right now? A withdrawn
