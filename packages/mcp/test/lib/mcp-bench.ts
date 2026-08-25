@@ -28,7 +28,7 @@ import type { Db } from "@changeover/store/db.ts";
 import { openDb } from "@changeover/store/db.ts";
 import { migrate } from "@changeover/store/migrate.ts";
 import { seedEstate } from "@changeover/store/fixtures.ts";
-import { resetHoldStore } from "@changeover/store/migrate.ts";
+import { resetEstate, resetHoldStore } from "@changeover/store/migrate.ts";
 import { HOLD_POLICY_PUBLISHED, principalBudgets } from "@changeover/core/budgets.ts";
 import type { Credential } from "@changeover/core/hold-seats.ts";
 
@@ -136,6 +136,9 @@ export async function mcpBench(options: McpBenchOptions = {}): Promise<McpBench>
     // Shared-store isolation: see the note in packages/core/test/lib/estate.ts.
     // PGlite gives each script a fresh database; a real Postgres does not.
     await resetHoldStore(db);
+    // And the estate too: seedEstate upserts what it names and leaves foreign
+    // Occasions in place, which resolve_occasions then answers with.
+    await resetEstate(db);
     await seedEstate(db, publishableEstate());
   }
 

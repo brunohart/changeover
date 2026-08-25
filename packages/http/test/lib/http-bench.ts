@@ -24,7 +24,7 @@ import type { Server } from "node:http";
 
 import type { Db } from "@changeover/store/db.ts";
 import { openDb } from "@changeover/store/db.ts";
-import { migrate, resetHoldStore } from "@changeover/store/migrate.ts";
+import { migrate, resetEstate, resetHoldStore } from "@changeover/store/migrate.ts";
 import type { Estate, OccasionSeed } from "@changeover/store/fixtures.ts";
 import { occasionSeedFromDocument, seedEstate } from "@changeover/store/fixtures.ts";
 
@@ -246,6 +246,9 @@ export async function httpBench(options: BenchOptions = {}): Promise<HttpBench> 
   // Shared-store isolation: see the note in packages/core/test/lib/estate.ts.
   // PGlite gives each script a fresh database; a real Postgres does not.
   await resetHoldStore(db);
+  // And the estate too: seedEstate upserts what it names and leaves foreign
+  // Occasions in place, which the capability document then embeds.
+  await resetEstate(db);
   await seedEstate(db, estate());
 
   const site = { ...siteConfig(options.profile ?? "1"), apex: options.apex ?? true };
