@@ -68,7 +68,7 @@ import type { HoldRevokedDetail } from "@changeover/schema/refusal.ts";
 import type { RevocationReason } from "@changeover/schema/scalars.ts";
 import { refuse } from "@changeover/schema/refusal.ts";
 import type { Credential } from "./hold-seats.ts";
-import { rfc3339Column, serverTime } from "./clock.ts";
+import { atOrAfter, rfc3339Column, serverTime } from "./clock.ts";
 import type { HoldRow, HoldState } from "./derived.ts";
 import { HOLD_COLUMNS, HOLD_STATE, deriveState, seatsAsGranted } from "./derived.ts";
 import type { HoldReadDocument } from "./get-hold.ts";
@@ -373,7 +373,12 @@ function guardState(row: HoldRow, state: HoldState, site: ClaimSite): void {
 function guardSalesCutoff(site: ClaimSite, server_time: Rfc3339): void {
   const cutoff = site.sales_cutoff_at;
   if (cutoff === null) return;
-  if (Date.parse(server_time) >= Date.parse(cutoff)) {
+  // `atOrAfter(cutoff, server_time)` is "the cutoff is at or before now". Read
+  // through clock.ts rather than compared with a bare `Date.parse` pair, because
+  // that helper throws on an instant that is not RFC 3339 where a bare parse
+  // yields NaN, and `NaN >= NaN` is false — which is a sales cutoff silently
+  // not applying.
+  if (atOrAfter(cutoff, server_time)) {
     throw refuse("past_sales_cutoff", "This screening has stopped selling.");
   }
 }
@@ -395,8 +400,12 @@ function guardSalesCutoff(site: ClaimSite, server_time: Rfc3339): void {
  * terminal, the agent's transcript ends at this call, and the instrument's grain
  * is formed intent rather than conversion — a deliberate limit, and §10 says
  * what it costs.
+ *
+ * `prove_claim_prefetch_safe.sh` strips this file of its comments and asserts
+ * that neither identifier survives, so the absence is checked rather than
+ * promised. A constant here that said `true` would have asserted nothing but its
+ * own literal.
  */
-export const HANDOFF_READS_NEITHER_FLOOR_NOR_GUARD = true;
 
 /**
  * Every column this verb writes, as data, so a proof can read the claim rather

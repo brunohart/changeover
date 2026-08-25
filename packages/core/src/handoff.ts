@@ -19,7 +19,6 @@ export type {
 } from "./hand-off.ts";
 
 export {
-  HANDOFF_READS_NEITHER_FLOOR_NOR_GUARD,
   HANDOFF_SQL,
   HANDOFF_WRITES,
   handOff,
