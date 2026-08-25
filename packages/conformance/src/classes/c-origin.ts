@@ -184,12 +184,23 @@ export async function run(bench: ConformanceBench): Promise<readonly ClauseOutco
 
   /* ── 6 · What cannot be reached from here ─────────────────────────────── */
 
+  // The blocker re-checks itself against the route table rather than against a
+  // path: `packages/http/src/routes.ts` exists, so naming it as a `missing_path`
+  // would be a blocker that could never go stale. What is absent is a ROUTE, and
+  // the day one appears this clause must stop being unprovable — so it turns
+  // into a failure that says so, rather than staying quietly grey.
   const publish_routes = ROUTES.filter((r) => r.method === "POST" && r.verb === null && r.name !== "revoke");
-  c.cannot(
-    "o3_publish",
-    `O3 requires a Server reject an Occasion violating O1 at publish with 400 schema_validation, and there is no publish surface: ROUTES declares ${ROUTES.length} routes and ${publish_routes.length} of them accept an Occasion. The store is loaded by a fixture seeder, and clause o1_planted above shows what the boundary then emits — so the rule has nowhere to be enforced rather than somewhere it is enforced wrongly`,
-    "packages/http/src/routes.ts",
-  );
+  if (publish_routes.length > 0) {
+    c.bad(
+      "o3_publish",
+      `this clause has been unprovable because no route accepts an Occasion, and ${publish_routes.length} now does (${publish_routes.map((r) => r.name).join(", ")}). O3's publish-time rejection is reachable and must be asserted here rather than skipped`,
+    );
+  } else {
+    c.cannot(
+      "o3_publish",
+      `O3 requires a Server reject an Occasion violating O1 at publish with 400 schema_validation, and there is no publish surface: ROUTES declares ${ROUTES.length} routes and ${publish_routes.length} of them accept an Occasion. The store is loaded by a fixture seeder, and clause o1_planted above shows what the boundary then emits — so the rule has nowhere to be enforced rather than somewhere it is enforced wrongly`,
+    );
+  }
   c.cannot(
     "agent_refuses",
     "O2 assigns the refusal to the consumer — an Agent MUST NOT present, navigate to, or pass on a URL failing O1, and MUST NOT follow a cross-origin redirect. There is no Agent in this repository, and an Agent written here could not falsify the claim anyway",
