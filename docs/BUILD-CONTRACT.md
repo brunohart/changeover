@@ -151,6 +151,29 @@ Paths are repository-relative to `/Users/brunohart/changeover`.
 | **TEST-007** | `packages/conformance/src/run.ts` · `src/report.ts` · `schemas/report.schema.json` · `packages/cli/src/commands/conform.ts` | every `src/classes/*.ts` · the eight document schemas |
 | **integrator** | `scripts/run_proofs.sh` · `.github/workflows/**` · all git operations | — |
 
+### What Gate 1 actually created outside those globs, and who owns it now
+
+Recorded at the Gate 1 integration so the next wave does not collide with it. Every one of these was a reasonable thing to write and none of them collided — but they are not in the table above, which means nothing was stopping a second author from writing the same path.
+
+| Path | Created by | Now owned by | Why it exists |
+|---|---|---|---|
+| `scripts/prove_lock_order.sh` *(in table)* · `scripts/prove_idempotent_race.sh` · `scripts/prove_no_fanout_concurrent.sh` | CORE-002 · CORE-005 · CORE-006 | same item as its sibling | The **concurrency half** of a gate, split out so the provable half can exit 0 while the half that needs two connections exits 2. This split is correct and should be the pattern: one script per gate that can be proven here, one per gate that cannot. |
+| `scripts/prove_pii_ingest.sh` | CORE-007 | **CORE-007** | P1 ingest refusal, proven at the boundary. **TEST-005 must not write this path** — its C-PII-INGEST class module is `packages/conformance/src/classes/c-pii-ingest.ts`, and its two proof scripts are `prove_injection_fails.sh` and `prove_hint_rejected.sh`. Extend this one or add a differently-named one. |
+| `packages/core/src/state.ts` · `packages/core/src/release-hold.ts` | CORE-003 | CORE-003 | Re-export shims under the names the backlog used. No second implementation — both forward to `derived.ts` / `release.ts`. |
+| `packages/core/test/lib/hold-fixtures.ts` | CORE-003 | CORE-003 | `mintHold()` puts a Hold directly into any of the six derived states, including *expired with nothing reaped*, which the grant verb cannot produce. **Now a shared dependency**: `prove_release_total.sh` names it as a precondition and other items will. Treat its signature as a contract. |
+| `scripts/prove_composition.sh` | integrator | integrator | The seams between modules, which no single item's proof can see. See §10. |
+
+### The seam Gate 1 left open
+
+**`packages/core/src/hmac.ts` was never written.** It is in CORE-007's glob and CORE-007 built only `access-log.ts`. Two modules independently hash under P2 and they are **not wired to the same key**:
+
+- `idempotency.ts` (CORE-005) hashes the Idempotency-Key with `keyHmac()` → `siteEpochKey()`, which reads `CHANGEOVER_HMAC_KEY` and **mints a per-process random when it is unset**.
+- `access-log.ts` (CORE-007) hashes the same key with `epochHmac(epoch, …)`, where `epoch: SiteEpoch {site_epoch_id, key}` is supplied **by the caller**.
+
+Measured: with `CHANGEOVER_HMAC_KEY` set and `SiteEpoch.key` built from it, the two agree exactly. With it unset they can never agree, and nothing in the tree says so. Two consequences an operator would find the hard way: an access-log row cannot be correlated to the idempotency record it belongs to, and the `idempotency` table carries no `site_epoch_id`, so crypto-shredding an epoch — which is the entire mechanism P2 names — shreds the log and leaves the idempotency digests hashed under a key nothing names.
+
+**Whoever writes `hmac.ts` owns resolving this**, and `prove_composition.sh` asserts the agreement so it cannot silently drift while they do. Until then, a binding MUST construct `SiteEpoch.key` from `CHANGEOVER_HMAC_KEY`.
+
 ### Files nobody may touch, for any reason
 
 ```
