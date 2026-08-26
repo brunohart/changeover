@@ -327,11 +327,35 @@ export function seatContended(seat_ids: readonly string[]): Refusal<"seat_conten
   });
 }
 
-/** `400 unknown_seat {seat_ids}` — W1. Ids the auditorium's own inventory does not carry. */
+/**
+ * `400 unknown_seat {seat_ids}` — W1. Ids the auditorium's own inventory does
+ * not carry.
+ *
+ * **`detail.seat_ids` carries only identifiers this auditorium publishes**, and
+ * for this code that set is empty by construction. The rule is uniform across
+ * the three seat-bearing details: `seat_contended` and `seat_unavailable` pass
+ * ids the store itself returned, so nothing changes for them; `unknown_seat` is
+ * by definition reached only by ids the auditorium does not carry, which is to
+ * say ids an attacker invented — up to twelve of them, up to 64 characters
+ * each, echoed into a structured member an agent is expected to render.
+ *
+ * The count is what an agent can act on and it is re-typed into server-authored
+ * prose rather than passed through, per PR3. `remediation: re_resolve` is
+ * identical either way: the agent has the seat map, and being told which of its
+ * own strings were wrong adds nothing it cannot read there. The `detail` branch
+ * is frozen at `{seat_ids}` with `additionalProperties: false`, so there is no
+ * legal member for a count to travel in — which is recorded as a spec note
+ * rather than worked around.
+ */
 export function unknownSeat(seat_ids: readonly string[]): Refusal<"unknown_seat"> {
-  return refuse("unknown_seat", "Those seat identifiers are not in this auditorium.", {
-    detail: { seat_ids: [...seat_ids] },
-  });
+  const n = seat_ids.length;
+  return refuse(
+    "unknown_seat",
+    n === 1
+      ? "One of the seat identifiers presented is not in this auditorium."
+      : `${n} of the seat identifiers presented are not in this auditorium.`,
+    { detail: { seat_ids: [] } },
+  );
 }
 
 /** `409 seat_unavailable {seat_ids}` — W3. Gone for a reason that is not a CHANGEOVER Hold. */

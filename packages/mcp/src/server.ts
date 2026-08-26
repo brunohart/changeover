@@ -65,6 +65,12 @@ import {
 import type { IdempotentVerb } from "@changeover/core/idempotency.ts";
 
 import { TOOLS, IDEMPOTENCY_KEY_MAX_LENGTH, toolByName } from "./tools.ts";
+
+/**
+ * The refusal a caller gets for a name this Server does not publish. Built once,
+ * from the tool table, and carrying no caller bytes at all.
+ */
+const NO_SUCH_TOOL = `No such tool. This Server publishes exactly: ${TOOLS.map((t) => t.name).join(", ")}.`;
 import type { ToolDefinition } from "./tools.ts";
 import { compileToolValidators } from "./validate.ts";
 import type { ToolValidators } from "./validate.ts";
@@ -204,11 +210,22 @@ export class ChangeoverMcp {
         // Not `not_authorised`: an unlisted name is not a permission question,
         // and answering as though it were would tell a caller that persisting
         // might help.
-        throw refuse("schema_validation", `No such tool: ${name}`);
+        //
+        // And never the name. A `content` block is what a model reads as the
+        // tool's answer, so a reflected tool name arrives in the model's context
+        // labelled as this Server speaking — strictly worse than the same
+        // reflection over HTTP. The published tool list is a constant.
+        throw refuse("schema_validation", NO_SUCH_TOOL);
       }
+      // `problems` is built from ajv `instancePath`, which is caller-shaped for
+      // any nested member path, so it is not put on the wire either. The tool
+      // publishes its inputSchema; a caller that failed it can read it.
       const problems = this.validators.validateInput(name, args);
       if (problems !== null) {
-        throw refuse("schema_validation", `Arguments failed ${name}.inputSchema: ${problems}`);
+        throw refuse(
+          "schema_validation",
+          "Arguments did not satisfy this tool's published inputSchema.",
+        );
       }
       return await this.dispatch(name, (args ?? {}) as Record<string, unknown>, now);
     } catch (err) {
@@ -234,7 +251,7 @@ export class ChangeoverMcp {
       case "hand_off":
         return this.handOff(args);
       default:
-        throw refuse("schema_validation", `No such tool: ${name}`);
+        throw refuse("schema_validation", NO_SUCH_TOOL);
     }
   }
 
