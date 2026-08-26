@@ -29,7 +29,9 @@ import { Refusal, refuse } from "@changeover/schema/refusal.ts";
 
 import type { HoldSeatsRequest } from "./hold-seats.ts";
 import { decisionMembers } from "./hold-seats.ts";
-import { rfc3339Sql } from "./clock.ts";
+import { GRANT_CLOCK, atOrAfter, rfc3339Column, rfc3339Sql } from "./clock.ts";
+import type { HoldState } from "./derived.ts";
+import { deriveState } from "./derived.ts";
 
 /* ── 1 · The keyed verbs, and the scope a key lives in ─────────────────────── */
 
@@ -254,16 +256,8 @@ export const REPROJECTED_MEMBERS: readonly string[] =
 export const HANDOFF_MEMBER = "handoff";
 export const CLAIM_URL_MEMBER = "claim_url";
 
-export const HOLD_STATE = {
-  live: "live",
-  handed_off: "handed_off",
-  claimed: "claimed",
-  released: "released",
-  expired: "expired",
-  revoked: "revoked",
-} as const;
-
-export type HoldState = (typeof HOLD_STATE)[keyof typeof HOLD_STATE];
+/** M1 has exactly one implementation and it is CORE-003's. This is that one. */
+export type { HoldState } from "./derived.ts";
 
 /** The four members I4 re-projects, read from current state in one clock reading. */
 export interface TimeBearing {
@@ -280,34 +274,6 @@ export interface TimeBearing {
 }
 
 /**
- * M1, as one SQL expression over one reading of one clock.
- *
- * *"`state` is derived at every read: `revoked` if an override is recorded;
- * `released` if a release is; `claimed` if a claim is; `handed_off` if handed
- * off and `server_time < claim_expires_at`; `live` if `server_time <
- * expires_at`; else `expired`."*
- *
- * The `case` reads `t.now` five times and `t.now` is read once, in a CTE. Calling
- * `clock_timestamp()` inline in each branch would be five readings of a volatile
- * function, which can straddle a deadline mid-row and report `handed_off` beside
- * a `server_time` that says otherwise.
- *
- * **This is a placeholder for CORE-003's `derived.ts` and is exported so that it
- * can be deleted rather than diverge.** M1 must have exactly one implementation;
- * when `derived.ts` lands, the integrator points {@link STORE_REPROJECTION} at
- * it and asserts this constant is gone. A second, drifting copy of the state
- * derivation is the defect this comment exists to make visible.
- */
-export const M1_STATE_SQL = `case
-      when h.revoked_at is not null then 'revoked'
-      when h.released_at is not null then 'released'
-      when h.claimed_at is not null then 'claimed'
-      when h.handed_off_at is not null and t.now < h.claim_expires_at then 'handed_off'
-      when t.now < h.expires_at then 'live'
-      else 'expired'
-    end`;
-
-/**
  * Where a replay reads current state from. A seam, so that the replay path and
  * `get_hold` cannot answer differently about one `hold_id`.
  */
@@ -315,35 +281,54 @@ export interface Reprojector {
   project(tx: Queryable, hold_id: string): Promise<TimeBearing | null>;
 }
 
-/** M1 against the `hold` row. Returns `null` where the Hold no longer exists. */
+/**
+ * M1 against the `hold` row, **through CORE-003's `deriveState`**. Returns
+ * `null` where the Hold no longer exists.
+ *
+ * The derivation is imported rather than restated. A replay that re-projected
+ * `state` by its own rules would be a second M1, and two M1s disagree the first
+ * time one of them learns about a new terminal marker — which is precisely how a
+ * replay ends up asserting `handed_off` over a Hold an Operator Override has
+ * already revoked.
+ *
+ * `server_time` comes from the **grant** clock, not `now()`: this is a read, and
+ * K6 requires the instant reported about one `hold_id` to be non-decreasing
+ * across responses. Transaction start would report the instant the transaction
+ * began, which for a long transaction is a `server_time` in the past.
+ */
 export const STORE_REPROJECTION: Reprojector = {
   async project(tx, hold_id) {
     const result = await tx.query<{
       server_time: string;
-      state: string;
       expires_at: string;
       claim_expires_at: string | null;
-      claim_spent: boolean;
+      handed_off_at: string | null;
+      released_at: string | null;
+      claimed_at: string | null;
+      revoked_at: string | null;
     }>(
-      `with t as (select clock_timestamp() as now)
-       select ${rfc3339Sql("t.now")}               as server_time,
-              ${M1_STATE_SQL}                      as state,
-              ${rfc3339Sql("h.expires_at")}        as expires_at,
-              ${rfc3339Sql("h.claim_expires_at")}  as claim_expires_at,
-              (h.claimed_at is not null
-                 or (h.claim_expires_at is not null and t.now >= h.claim_expires_at)) as claim_spent
-         from hold h, t
-        where h.hold_id = $1`,
+      `select ${rfc3339Sql(GRANT_CLOCK)} as server_time,
+              ${rfc3339Column("expires_at")},
+              ${rfc3339Column("claim_expires_at")},
+              ${rfc3339Column("handed_off_at")},
+              ${rfc3339Column("released_at")},
+              ${rfc3339Column("claimed_at")},
+              ${rfc3339Column("revoked_at")}
+         from hold
+        where hold_id = $1`,
       [hold_id],
     );
     const row = result.rows[0];
     if (row === undefined) return null;
+    const server_time: Rfc3339 = row.server_time;
     return {
-      server_time: row.server_time,
-      state: row.state as HoldState,
+      server_time,
+      state: deriveState(row, server_time),
       expires_at: row.expires_at,
       claim_expires_at: row.claim_expires_at ?? undefined,
-      claim_spent: row.claim_spent === true,
+      // I9: consumed, or past its window. `atOrAfter(a, b)` is `a <= b`.
+      claim_spent: row.claimed_at !== null ||
+        (row.claim_expires_at !== null && atOrAfter(row.claim_expires_at, server_time)),
     };
   },
 };
