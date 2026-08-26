@@ -54,6 +54,9 @@ import {
 import { HOLD_POLICY_PUBLISHED, principalBudgets } from "@changeover/core/budgets.ts";
 import type { HoldPolicyDocument } from "@changeover/core/budgets.ts";
 import { serverTime } from "@changeover/core/clock.ts";
+import { writeAccessLog } from "@changeover/core/access-log.ts";
+import type { Invocation, SecondarySink, SiteEpoch } from "@changeover/core/access-log.ts";
+import type { AccessLogVerb } from "@changeover/store/schema.ts";
 import { HOLD_COLUMNS, HOLD_STATE, deriveState } from "@changeover/core/derived.ts";
 import type { HoldRow, HoldState } from "@changeover/core/derived.ts";
 import { assertHoldSeatsShape, holdSeats } from "@changeover/core/hold-seats.ts";
@@ -125,16 +128,69 @@ export const NO_RATE_LIMIT: RateLimiter = {
   },
 };
 
-/** The seam §5.4 will be wired through. Off by default, and honest about it. */
+/**
+ * The §5.4 access log, as this binding writes it.
+ *
+ * The previous shape — `record({ route, outcome, code? }): void` — could not
+ * satisfy §5.4 no matter what an operator plugged into it. It returned `void`,
+ * so a caller could not await it and could not act on a failed log write; it
+ * carried no `agent_id` and no `principal_scope`, both `NOT NULL` on
+ * `changeover_log.access_log`; it carried no local wall clock, which A3
+ * partitions on; and it was invoked at exactly one site — the internal-fault
+ * catch — so even a fully wired implementation would have seen faults and never
+ * an `ok` or a `refused`, which is the direction §5.4 cares about most: *"a log
+ * with only successes cannot show someone probing the boundary"*.
+ *
+ * It is now {@link Invocation} — CORE-007's own type, not a second shape — plus
+ * the outcome, and it is awaited on all three terminal paths of {@link handle}.
+ * {@link storeAccessLog} wires it to `writeAccessLog`.
+ */
 export interface AccessLog {
-  record(entry: { route: string; outcome: "ok" | "refused" | "error"; code?: RefusalCode }): void;
+  record(entry: Invocation, observed_at: Rfc3339): Promise<void>;
 }
 
+/**
+ * No log. The default, and it is what makes the capability document omit
+ * `log_retention_days`: a Server that publishes a retention period tells an
+ * auditor a log exists, and this one does not.
+ */
 export const NO_ACCESS_LOG: AccessLog = {
-  record() {
-    /* A1-A4 are CORE-007's, and `hmac.ts` is unwritten. See the module note. */
+  async record() {
+    /* Nothing, loudly: `capability.ts` omits `log_retention_days` for this. */
   },
 };
+
+export interface StoreAccessLogOptions {
+  /** IANA zone for the site whose wall clock partitions the row (A3). */
+  readonly timezone: string;
+  /** P2. Construct `key` from `CHANGEOVER_HMAC_KEY` — see BUILD-CONTRACT §2. */
+  readonly epoch: SiteEpoch;
+  /** A2's durable secondary for READ verbs. Absent means reads fail closed too. */
+  readonly secondary?: SecondarySink;
+}
+
+/**
+ * Wire the seam to CORE-007's writer.
+ *
+ * **A1 is not satisfied by this factory and saying so is the point.** A1
+ * requires the log to sit on storage independent of the hold store, and a
+ * deployment that passes its hold `Db` here has one store, not two. What this
+ * gives an operator is the wiring; what it does not give them is the
+ * independence, and the honest way to get it is a second `Db`. The signature
+ * takes a `Db` rather than reading `options.db` precisely so that passing a
+ * different one is the easy thing to do.
+ */
+export function storeAccessLog(db: Db, options: StoreAccessLogOptions): AccessLog {
+  return {
+    async record(entry: Invocation, observed_at: Rfc3339): Promise<void> {
+      await writeAccessLog(db, entry, observed_at, {
+        timezone: options.timezone,
+        epoch: options.epoch,
+        ...(options.secondary === undefined ? {} : { secondary: options.secondary }),
+      });
+    },
+  };
+}
 
 export interface ServerOptions {
   readonly db: Db;
@@ -236,18 +292,71 @@ export async function handle(
   options: ServerOptions,
   request: HttpRequestLike,
 ): Promise<HttpResponseLike> {
-  const now = await currentTime(options.db);
+  // **No store round trip before routing, authentication or the rate limiter.**
+  //
+  // Until 2026-08-26 the first statement here was `await currentTime(options.db)`,
+  // which meant an unauthenticated request for a path matching no route spent a
+  // pool connection and a round trip before anything had a chance to refuse it:
+  // fifty sequential unauthenticated 404s produced fifty queries. §6.3 names
+  // transport throttling as the defence and it was consulted three guards too
+  // late, so a flood of nonexistent paths could saturate the pool and deny
+  // `hold_seats` to real customers without ever presenting a credential.
+  //
+  // Everything ahead of the verb is stamped from `processTimeRfc3339()`, which
+  // this file already accepts as the legitimate stand-in wherever the store
+  // cannot answer. K4 binds the instants a Server *asserts about Holds*; a 404
+  // asserts nothing about a Hold.
+  const url = new URL(request.url, "http://route.invalid");
+  const found = lookup(request.method, url.pathname);
+
+  if (found.outcome === "no_route") {
+    const at = processTimeRfc3339();
+    return stamped(
+      { status: 404, headers: { "Content-Type": PROBLEM_CONTENT_TYPE }, body: blankProblem(404, "Not Found", at) },
+      at,
+    );
+  }
+  if (found.outcome === "method_not_allowed") {
+    const at = processTimeRfc3339();
+    return stamped(
+      {
+        status: 405,
+        headers: {
+          "Content-Type": PROBLEM_CONTENT_TYPE,
+          [HEADER.allow]: [...new Set(found.allow)].join(", "),
+        },
+        body: blankProblem(405, "Method Not Allowed", at),
+      },
+      at,
+    );
+  }
+
+  const { route: matched, params } = found.match;
+  let credential: SiteCredential | null = null;
+  let now: Rfc3339 = processTimeRfc3339();
 
   try {
-    return stamped(await route(options, request, now), now);
+    credential = admit(options, request, matched);
+    // Only now is this request going to reach a verb, so only now is the store
+    // asked for the clock (K4).
+    now = await currentTime(options.db);
+    const built = await route(options, request, url, matched, params, credential, now);
+    await record(options, matched, credential, now, "ok");
+    return stamped(built, now);
   } catch (err) {
     if (isRefusal(err)) {
+      // §5.4: refusals are logged deliberately. A log of only successes cannot
+      // show someone probing the boundary, which is the thing you most want to
+      // see. `credential` is null for a refusal raised by `admit` itself, and
+      // the row then carries the anonymous identity rather than no row at all.
+      await record(options, matched, credential, now, "refused", err.code);
       return stamped(problemResponse(err.code, problemOf(err.toDocument(now))), now);
     }
     // An internal fault MUST NOT reach the wire with its message: an error
     // string is an uncontrolled prose channel to a consumer with no judgement.
-    // The operator gets the stack; the caller gets a code and a backoff.
+    // The operator gets the stack; the caller gets a status and nothing else.
     logInternal(err);
+    await record(options, matched, credential, now, "error").catch(logInternal);
     // NOT `upstream_unavailable`. §6.3 defines that code as "The exhibitor's own
     // system is down. Never a guess." — so rendering an internal fault as one is
     // a false statement about a third party, and the `retry_after` remediation
@@ -285,34 +394,79 @@ function logInternal(err: unknown): void {
   console.error("[changeover:http] internal fault", err);
 }
 
-async function route(
+/**
+ * The routes §5.4 has a verb for. `capability`, `delegation` and `revoke` are
+ * not agent invocations of one of the five verbs, and `ACCESS_LOG_VERBS` has no
+ * member for them — so they are not logged rather than being logged under a
+ * name the closed enum does not contain.
+ */
+const LOGGED_VERB: Readonly<Record<string, AccessLogVerb>> = Object.freeze({
+  resolve_occasions: "resolve_occasions",
+  get_occasion: "resolve_occasions",
+  hold_seats: "hold_seats",
+  get_hold: "get_hold",
+  release_hold: "release_hold",
+  hand_off: "hand_off",
+});
+
+/**
+ * One row per invocation, on every terminal path (§5.4).
+ *
+ * **What this does NOT do, stated rather than implied.** A2 says fail-closed
+ * applies to write verbs — *"hold_seats throws rather than granting unlogged"*.
+ * That cannot be honoured from here: by the time an outcome exists the grant has
+ * committed, and turning a committed Hold into an error response would strand
+ * the seats AND lose the answer. Honouring A2 properly means writing the row
+ * inside the verb's own transaction, which A1 forbids in the same breath — the
+ * log MUST sit on storage independent of the hold store. The two rules are in
+ * tension and this binding resolves it in favour of A1 and of answering the
+ * customer. The gap is reported against §5.4 in
+ * `docs/2026-08-25-cx-02-core-build.md` rather than papered over.
+ *
+ * So a failed log write is logged as an internal fault and the response stands.
+ * That is a partial implementation of A2 and it is named as one.
+ */
+async function record(
+  options: ServerOptions,
+  matched: Route,
+  credential: SiteCredential | null,
+  observed_at: Rfc3339,
+  outcome: "ok" | "refused" | "error",
+  refusal_code?: RefusalCode,
+): Promise<void> {
+  const log = options.access_log;
+  if (log === undefined) return;
+  const verb = LOGGED_VERB[matched.name];
+  if (verb === undefined) return;
+  try {
+    await log.record(
+      {
+        verb,
+        outcome,
+        ...(outcome === "refused" ? { refusal_code: refusal_code ?? null } : {}),
+        // A credential that never resolved still produced an invocation. The
+        // columns are NOT NULL, and "somebody unauthenticated asked" is exactly
+        // the row §5.4 exists to make visible.
+        agent_id: credential?.agent_id ?? "anonymous",
+        principal_scope: credential?.principal_scope ?? "anonymous",
+      },
+      observed_at,
+    );
+  } catch (err) {
+    logInternal(err);
+  }
+}
+
+/**
+ * Everything a request must satisfy before it may reach a verb, and therefore
+ * before the store is touched at all: the declared version, the credential, the
+ * profile, and the rate limit.
+ */
+function admit(
   options: ServerOptions,
   request: HttpRequestLike,
-  now: Rfc3339,
-): Promise<Built> {
-  const url = new URL(request.url, "http://route.invalid");
-  const found = lookup(request.method, url.pathname);
-
-  if (found.outcome === "no_route") {
-    return {
-      status: 404,
-      headers: { "Content-Type": PROBLEM_CONTENT_TYPE },
-      body: blankProblem(404, "Not Found", now),
-    };
-  }
-  if (found.outcome === "method_not_allowed") {
-    return {
-      status: 405,
-      headers: {
-        "Content-Type": PROBLEM_CONTENT_TYPE,
-        [HEADER.allow]: [...new Set(found.allow)].join(", "),
-      },
-      body: blankProblem(405, "Method Not Allowed", now),
-    };
-  }
-
-  const { route: matched, params } = found.match;
-
+  matched: Route,
+): SiteCredential | null {
   // V1: "A Server MUST reject a request whose declared version is absent from
   // supported_versions." Absent is not a declaration; a wrong one is.
   const declared = headerOf(request, HEADER.changeover_version);
@@ -321,16 +475,12 @@ async function route(
   }
 
   const credential = authorise(options, request, matched);
-  const profile = effectiveProfile(options.site.profile, credential);
 
   // G1 step 1, applied at the binding to every /holds route: Profile 0 is a
   // static file with no hold verbs, so there is no Hold for any of them to
   // address, not merely no way to create one.
-  if (matched.hold_verb && profile === "0") {
-    throw refuse(
-      "profile_not_supported",
-      "This Server publishes at Profile 0 and holds no seats.",
-    );
+  if (matched.hold_verb && effectiveProfile(options.site.profile, credential) === "0") {
+    throw refuse("profile_not_supported", "This Server publishes at Profile 0 and holds no seats.");
   }
 
   const limiter = options.rate_limit ?? NO_RATE_LIMIT;
@@ -338,6 +488,19 @@ async function route(
   if (retry_after_ms !== null) {
     throw refuse("rate_limited", "Too many requests on this credential.", { retry_after_ms });
   }
+  return credential;
+}
+
+async function route(
+  options: ServerOptions,
+  request: HttpRequestLike,
+  url: URL,
+  matched: Route,
+  params: Record<string, string>,
+  credential: SiteCredential | null,
+  now: Rfc3339,
+): Promise<Built> {
+  const profile = effectiveProfile(options.site.profile, credential);
 
   // RFC 9110 §13.1.1 evaluates If-Match against the TARGET resource. It is valid
   // on exactly one route. On POST /holds the target is the hold collection and

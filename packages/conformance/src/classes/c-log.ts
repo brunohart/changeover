@@ -333,9 +333,41 @@ export async function run(bench: ConformanceBench): Promise<readonly ClauseOutco
     refused.status === 404 && granted.status === 201 && bad_body.status === 400,
     `three invocations across the boundary — one refused, one granted, one refused again (${invocations.map((r) => r.status).join(", ")})`,
   );
-  c.cannot(
+  // §5.4: one row per invocation — ok, refused and error alike. Until
+  // 2026-08-26 this was an honest `cannot`: the binding called its seam on
+  // exactly one path (the unknown-route fault) and the seam's shape carried
+  // neither `agent_id` nor `principal_scope`, both NOT NULL on the table. Both
+  // are fixed, so this is now an assertion.
+  const logged = bench.log.entries;
+  c.that(
     "per_invocation",
-    `the binding calls its access_log seam on exactly one path — the unknown-route error — and on none of the nine routes, so ${bench.log.entries.length} of those three invocations reached it. The seam's own signature is {route, outcome, code}: it carries no agent_id and no principal_scope, both NOT NULL on changeover_log.access_log, so no conforming row could be written through it even if it were called. NO_ACCESS_LOG says why — A1-A4 are CORE-007's and packages/core/src/hmac.ts is unwritten, which also leaves the P2 epoch key unnamed`,
+    logged.length === invocations.length,
+    `one row per invocation — ${invocations.length} calls across the boundary, ${logged.length} reached the access-log seam, the two refusals included`,
+  );
+  c.that(
+    "invocation_identity",
+    logged.length > 0 &&
+      logged.every((e) => e.invocation.agent_id.length > 0 && e.invocation.principal_scope.length > 0),
+    `every logged invocation carries the agent_id and principal_scope §5.4 requires and the table declares NOT NULL (${logged
+      .map((e) => `${e.invocation.verb}/${e.invocation.outcome}`)
+      .join(", ")})`,
+  );
+  c.that(
+    "refusals_carry_their_code",
+    logged
+      .filter((e) => e.invocation.outcome === "refused")
+      .every((e) => typeof e.invocation.refusal_code === "string"),
+    "a refused invocation is logged with its closed code — a log of only successes cannot show someone probing the boundary",
+  );
+  // A2's fail-closed half is NOT satisfied at this binding and the class says
+  // so rather than leaving the reader to infer it from an assertion that is not
+  // there. It is a specification tension, not an omission: A2 wants the row
+  // written or the write verb refused, and A1 wants the log on storage the hold
+  // store cannot reach — so by the time a binding knows the outcome, the grant
+  // has committed and refusing it would strand the seats AND lose the answer.
+  c.cannot(
+    "fail_closed_write_verb",
+    "A2 requires a write verb whose log row cannot be written to fail closed. This binding logs after the outcome exists, so the Hold has already committed and there is nothing left to refuse; honouring A2 means writing the row inside the verb's transaction, which A1 forbids in the same breath. Reported against SPEC.md §5.4 rather than resolved here",
     "packages/core/src/hmac.ts",
   );
 
