@@ -1,0 +1,150 @@
+# changeover.policy.yaml — one arthouse, eight rules, authored once.
+#
+# This is the whole of a small exhibitor's non-substitutability policy. It is
+# not a graph of screenings: there is no occasion_id anywhere in this file, and
+# there never will be. A circuit rebuilds thousands of screenings every
+# change-day and every occasion_id is new; a graph re-authored weekly at O(n^2)
+# in the cluster is a graph nobody authors twice. Rules are written over
+# CLASSES, and `changeover derive` expands them over instances at publish time
+# (SPEC.md 2.3).
+#
+# The three golden Occasions in fixtures/golden/ are derived from r-35mm-carrier
+# and nothing else. Their etags are frozen in the root commit of this
+# repository — substitution is inside PROJECTION_0_1 — so this file is pinned by
+# scripts/prove_policy_derive.sh as tightly as the fixtures are.
+#
+# How to read a rule, in the venue's own words:
+#
+#   not_substitutable_for  ranks the subject ABOVE the object on an axis, and a
+#                          ranking has two faces. The subject's screenings
+#                          publish a refusal naming the object's; the object's
+#                          screenings publish that the subject's IS an
+#                          acceptable substitute for them. One claim, two
+#                          documents. This is the specification's own sentence:
+#                          "a 70mm print at seven is an acceptable substitute
+#                          for a DCP at nine; the DCP is not an acceptable
+#                          substitute for the 70mm."
+#
+#   accepts_substitute     is a grant, not a ranking. It says only what it says,
+#                          in one direction. Silence about the reverse is the
+#                          absence of permission, never its presence.
+#
+#   effective_from/_to     is in force for a SCREENING whose local calendar date
+#                          falls inside the window — the venue's own wall clock,
+#                          never UTC.
+#
+# Run `changeover lint --policy fixtures/policy/arthouse.yaml --explain` to see
+# what each rule will do before it does it.
+
+policy_id: "pol_embassy_2026"
+rule_version: "2026.1"
+
+rules:
+  # The thesis, in data. The print is here from the first of the month until it
+  # goes back to the vault after the Saturday night show — occ:final-run on
+  # fixtures/golden/occasion-embassy-sat-1900.json is the same fact. From the
+  # 30th the house makes no claim about it, which is why the Sunday matinee is
+  # incomparable: a different night, no attested edge.
+  - rule_id: "r-35mm-carrier"
+    subject: "pres:35mm-4perf"
+    relation: "not_substitutable_for"
+    object: "pres:dcp-*"
+    policy: "strict"
+    reason_code: "carrier"
+    detail:
+      content_type: "text/plain"
+      value: "A digital projection is not a substitute for the print."
+    authored_by: "venue"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-08-01"
+    effective_to: "2026-08-29"
+
+  # The same claim for the other two gauges the house can still thread. Neither
+  # has a screening in the golden corpus, so both are inert there — and lint
+  # says so rather than leaving the author to wonder.
+  - rule_id: "r-70mm-carrier"
+    subject: "pres:70mm-5perf"
+    relation: "not_substitutable_for"
+    object: "pres:dcp-*"
+    policy: "strict"
+    reason_code: "carrier"
+    detail:
+      content_type: "text/plain"
+      value: "The 70mm is the reason this room exists."
+    authored_by: "venue"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"
+
+  - rule_id: "r-16mm-carrier"
+    subject: "pres:16mm"
+    relation: "not_substitutable_for"
+    object: "pres:dcp-*"
+    policy: "strict"
+    reason_code: "carrier"
+    authored_by: "programmer"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"
+
+  # Accessibility. A captioning device handed to one person is not the same
+  # provision as captions burned to the screen for the whole room, and the
+  # substitution that quietly swaps one for the other is the one that strands
+  # somebody in a foyer.
+  - rule_id: "r-open-caption"
+    subject: "pres:open-caption"
+    relation: "not_substitutable_for"
+    object: "pres:closed-caption-device"
+    policy: "strict"
+    reason_code: "accessibility"
+    detail:
+      content_type: "text/plain"
+      value: "Open captions are on the screen for everyone. A personal device is a different provision."
+    authored_by: "venue"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"
+
+  - rule_id: "r-audio-description"
+    subject: "pres:audio-description"
+    relation: "not_substitutable_for"
+    object: "pres:dcp-*"
+    policy: "strict"
+    reason_code: "accessibility"
+    authored_by: "venue"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"
+
+  # The occasion axis. An archival print is not a re-release of the same title,
+  # and the Q&A is not the 9:40 of the same film.
+  - rule_id: "r-archival-print"
+    subject: "occ:archival-print"
+    relation: "not_substitutable_for"
+    object: "occ:rerelease"
+    policy: "strict"
+    reason_code: "occasion"
+    detail:
+      content_type: "text/plain"
+      value: "This is the print struck for the release, not a new one made from a scan."
+    authored_by: "programmer"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"
+
+  - rule_id: "r-presenter-present"
+    subject: "occ:director-qa"
+    relation: "not_substitutable_for"
+    object: "occ:repertory"
+    policy: "strict"
+    reason_code: "occasion"
+    authored_by: "programmer"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"
+
+  # The one advisory rule in the house: worth telling somebody about, not worth
+  # refusing a hold over.
+  - rule_id: "r-immersive-sound"
+    subject: "pres:sound-atmos"
+    relation: "not_substitutable_for"
+    object: "pres:sound-5-1"
+    policy: "advisory"
+    reason_code: "format"
+    authored_by: "venue"
+    authored_at: "2026-08-01T09:00:00+12:00"
+    effective_from: "2026-01-01"

@@ -1,0 +1,28 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-expiry-extendable-from-another-window",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "Order expiry (guide), Client expectations"
+  },
+  "behaviour": {
+    "summary": "The documentation instructs a client to re-fetch an order immediately before cancelling it, because the expiry may have been extended by a separate tab or window. The order's deadline is shared mutable state across every session holding the order identifier, and it is not scoped to the caller who created it.",
+    "testable_as": "Two callers holding one order identifier: a mutation by the second moves the deadline observed by the first, and no member of the first caller's read discloses that another party did it.",
+    "consequence_for_agents": "An agent cannot distinguish its own lease from a lease something else is renewing on its behalf, which makes both release and hand-off unsafe to reason about. CHANGEOVER binds a Hold to one principal and makes hand-off single-consumption, so the deadline is never moved by an unseen third party.",
+    "spec_rules": ["Z2", "HO1"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 180,
+  "half_life_basis": "Published guidance on a maintained page describing a structural property of order-scoped reservation. Half a year.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/orders/expiry.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "Before making the cancel request, the client should fetch the order one last time to ensure its expiry hasn't been extended by a separate tab or window.",
+    "locator": "Client expectations, recommended client behaviour"
+  }
+}

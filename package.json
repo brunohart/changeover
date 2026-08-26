@@ -5,11 +5,32 @@
   "description": "An open commitment boundary for cinema exhibition. Specification, schemas and conformance fixtures.",
   "license": "MIT",
   "type": "module",
-  "engines": { "node": ">=20" },
-  "scripts": { "proofs": "bash scripts/run_proofs.sh" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "proofs": "bash scripts/run_proofs.sh",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "npm run typecheck && npm test && npm run proofs",
+    "changeover": "node packages/cli/src/bin.ts"
+  },
   "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/pg": "8.23.1",
+    "fast-check": "4.9.0",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.7",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "ajv": "8.17.1",
     "ajv-formats": "3.0.1",
-    "canonicalize": "2.1.0"
+    "canonicalize": "2.1.0",
+    "pg": "8.23.0",
+    "yaml": "2.9.0"
   }
 }

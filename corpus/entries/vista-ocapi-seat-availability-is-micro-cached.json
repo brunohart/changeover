@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-seat-availability-is-micro-cached",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "GetSeatAvailabilityForShowtime"
+  },
+  "behaviour": {
+    "summary": "Seat availability is described as live data that is only micro-cached for a few seconds, with a preview=true parameter serving a more heavily cached version for non-interactive display. The same read also returns Available for seats already reserved by the calling order, so availability is relative to who is asking.",
+    "testable_as": "Two reads of the same showtime, one with preview=true and one without, may disagree; and a seat reserved by the caller's own order reads Available to that caller while being unavailable to everyone else.",
+    "consequence_for_agents": "Availability is a cached, caller-relative opinion with an unstated staleness, so an agent that treats it as a fact about the room will oversell against its own promise. CHANGEOVER separates the two questions completely: availability is a read that may be stale and says so, and the only statement about the future is a Hold.",
+    "spec_rules": ["M1", "W3"]
+  },
+  "method": "vendor_stated",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 120,
+  "half_life_basis": "Cache duration is an internal operational detail stated in prose, unverifiable from outside, and the kind of number that is tuned quietly. Four months.",
+  "confidence_at_observation": 0.6,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/seating.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "Seat availability is considered 'live data' and is only micro-cached for a few seconds... Returns the Available status for any seats that have already been reserved for the order.",
+    "locator": "Seat availability; Seat previews"
+  },
+  "verification_gap": "A few seconds is not a number, and the caller-relative behaviour cannot be observed without an order, which cannot be created without tenant access."
+}

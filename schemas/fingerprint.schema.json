@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:changeover:schema:fingerprint:0.1",
+  "title": "CHANGEOVER boundary fingerprint",
+  "description": "What `changeover probe` emits: which recorded corpus behaviours a particular exhibitor boundary exhibits, and on what evidence. A fingerprint is a measurement of somebody else's system, so it is a claim that must be able to be wrong — every observation carries its own verdict, its own method and its own timestamp, and `indeterminate` is a first-class outcome rather than a silent omission. This is a HARNESS schema, not a CHANGEOVER document schema: no Server emits it on a verb's wire, it is not one of the eight documents Lock 2 covers, and its member names MUST NOT be added to schemas/member-manifest.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fingerprint_schema", "probe_version", "corpus_version", "probed_at", "surface", "observations", "summary", "disclaimer"],
+  "properties": {
+    "fingerprint_schema": { "const": "urn:changeover:schema:fingerprint:0.1" },
+    "probe_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The version of the probe that produced this. A fingerprint without one cannot be reproduced."
+    },
+    "corpus_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "From corpus/version.json. The corpus a fingerprint was taken against is part of the fingerprint: an entry added later cannot be assumed to have been checked."
+    },
+    "probed_at": { "type": "string", "format": "date-time", "description": "RFC 3339 with a mandatory offset." },
+    "surface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin"],
+      "description": "What was probed. An origin, never an operator: no account, no contact, no person.",
+      "properties": {
+        "origin": { "type": "string", "format": "uri", "pattern": "^https://", "maxLength": 400 },
+        "label": { "type": "string", "maxLength": 120, "description": "A human-readable name for the surface. Never a person's name." },
+        "declared_vendor": { "type": "string", "maxLength": 120, "description": "The vendor the surface itself declares, where it declares one. Never inferred, and never an affiliation." },
+        "declared_product": { "type": "string", "maxLength": 120 },
+        "tier": {
+          "type": "string",
+          "enum": ["enterprise_cms", "on_premises_cms", "smb_cms", "aggregation_layer", "arts_venue_platform", "open_source_ticketing", "showtime_feed", "unknown"]
+        },
+        "authorised": {
+          "type": "boolean",
+          "description": "Whether the probe held the surface operator's permission to run. A probe against a surface without permission is limited to what the operator's own documentation publishes as public, and this member records which of the two happened."
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entry_id", "verdict", "method", "observed_at"],
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "maxLength": 96,
+            "description": "The corpus entry this observation answers. Ids are permanent, so a fingerprint stays readable after the corpus grows."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": ["exhibits", "does_not_exhibit", "indeterminate"],
+            "description": "indeterminate is not a failure of the probe and MUST NOT be reported as either of the other two. The difference between the surface not doing this and we could not tell is the whole value of the fingerprint."
+          },
+          "method": { "type": "string", "enum": ["probed_live", "documented", "vendor_stated", "reproduced_in_fixture"] },
+          "observed_at": { "type": "string", "format": "date-time" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1, "description": "Decayed to probed_at, per the corpus entry's half_life_days. See corpus/README.md." },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["assertion"],
+            "description": "Narrow by construction. Status codes, byte counts, durations and a repeatable command — never a response body, because a stored body is an unbounded channel for exactly the personal data this project forbids.",
+            "properties": {
+              "probe_request": { "type": "string", "maxLength": 400 },
+              "response_status": { "type": "integer", "minimum": 100, "maximum": 599 },
+              "response_bytes": { "type": "integer", "minimum": 0 },
+              "elapsed_ms": { "type": "integer", "minimum": 0, "description": "Integer milliseconds, per the house rule. Never seconds, never a float." },
+              "assertion": { "type": "string", "minLength": 10, "maxLength": 600 },
+              "reproduce": { "type": "string", "maxLength": 600 }
+            }
+          },
+          "note": { "type": "string", "maxLength": 600 }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entries_considered", "exhibits", "does_not_exhibit", "indeterminate"],
+      "description": "Counts, asserted to be consistent with observations by the probe's own test. A summary that disagrees with its observations is the bug this member exists to expose.",
+      "properties": {
+        "entries_considered": { "type": "integer", "minimum": 0 },
+        "exhibits": { "type": "integer", "minimum": 0 },
+        "does_not_exhibit": { "type": "integer", "minimum": 0 },
+        "indeterminate": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "disclaimer": {
+      "type": "string",
+      "minLength": 40,
+      "maxLength": 600,
+      "description": "Carried in the document, not only in the README, because a fingerprint travels. It states that the probe is independent of every named vendor and that vendor behaviour is recorded from public documentation and public surfaces only."
+    }
+  }
+}

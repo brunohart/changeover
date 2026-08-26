@@ -1,0 +1,30 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-order-expiry-configured-at-two-points",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "Order expiry (guide)"
+  },
+  "behaviour": {
+    "summary": "Order expiry is configured in two independent places — the Digital Platform API and the cinema — with a separately configurable grace period on top. The documentation states only that the two values should ideally be compatible; it publishes no default, no bound, and no way for a caller to discover either value except by reading expiresAt off an order it has already created.",
+    "testable_as": "The published Order expiry guide names two configuration points plus a grace period and states no numeric default; no operation returns the configured timeout as a value before an order exists.",
+    "consequence_for_agents": "There is no protocol-level TTL to reason about, so an agent that assumes one is guessing at another operator's configuration. CHANGEOVER inverts this: the floor is published before the hold is asked for, and floor_ms never increases post-grant.",
+    "spec_rules": ["T1", "T4"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 180,
+  "half_life_basis": "A published guide page is more stable than a deployment, but this one describes configurable behaviour that a product release can restructure. Half a year.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/orders/expiry.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "The expiry timeout value configuration is available both in the Digital Platform API and at cinema. These values should be configured to be compatible - ideally the Digital Platform API value should be at the same time or earlier than the cinema. An order expiry grace period can also be configured which allows an order to be considered not expired for a period of time even after it has passed its expiry time limit.",
+    "locator": "Expiry configuration"
+  },
+  "verification_gap": "The actual configured values in any real deployment are not published anywhere. Establishing them requires tenant access, which is granted commercially and not self-serve.",
+  "notes": "Every developer.vista.co guide page is retrievable as Markdown by appending .md; the cited URL is that form of the page a reader sees at https://developer.vista.co/digital-platform/orders/expiry."
+}

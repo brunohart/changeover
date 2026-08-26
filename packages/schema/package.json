@@ -1,0 +1,16 @@
+{
+  "name": "@changeover/schema",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Compiled validators for the nine frozen schemas, wire types, the PROJECTION_0_1 projector, etag minting, and the closed refusal taxonomy.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "ajv": "8.17.1",
+    "ajv-formats": "3.0.1",
+    "canonicalize": "2.1.0"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-no-idempotency-convention-published",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "Conventions (guide)"
+  },
+  "behaviour": {
+    "summary": "The public Conventions page — the page that establishes what a caller may assume across the whole API — covers content types, date formats, polymorphism, HTTP response codes and error documents, and does not mention idempotency, an idempotency key, or a safe-retry convention anywhere.",
+    "testable_as": "Retrieve https://developer.vista.co/digital-platform/getting-started/conventions.md and match /idempot/i against the whole document: zero matches. The document's headings are Content types, Date formats, Polymorphism, HTTP response codes, Errors, 404 errors, 400 errors, 5XX errors.",
+    "consequence_for_agents": "A retry after a timeout is the single most common thing an autonomous consumer does, and it is exactly the operation with no published contract, so a duplicated reservation is indistinguishable from a successful one. CHANGEOVER makes the key mandatory and binds it to an intent digest: same key and same digest replays, same key and different digest refuses without acting.",
+    "spec_rules": ["I1", "I3", "D1"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 90,
+  "half_life_basis": "This is an ABSENCE, and an absence is the most perishable claim a corpus can hold: a vendor can close it in one documentation commit and nothing announces that. Ninety days, deliberately the shortest half-life among the documented entries.",
+  "confidence_at_observation": 0.9,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/getting-started/conventions.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "locator": "whole document, 4987 bytes as retrieved",
+    "quote": "Content types / Date formats / Polymorphism / HTTP response codes / Errors / 404 errors / 400 errors / 5XX errors"
+  },
+  "verification_gap": "This says only that the CONVENTIONS PAGE is silent. Whether idempotency keys exist elsewhere in the product, undocumented publicly or documented behind tenant access, is unverified and this entry does not claim otherwise."
+}

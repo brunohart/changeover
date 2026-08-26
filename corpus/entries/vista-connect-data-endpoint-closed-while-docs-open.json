@@ -1,0 +1,36 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-connect-data-endpoint-closed-while-docs-open",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Connect (on-premises), WSVistaWebClient",
+    "tier": "on_premises_cms",
+    "doc_root": "https://connect.westwindtheaters.com/WSVistaWebClient/api-docs/general/introduction",
+    "endpoint": "GET /RESTData.svc/cinemas"
+  },
+  "behaviour": {
+    "summary": "Because Connect is deployed per exhibitor, its API documentation is served from each exhibitor's own host and is incidentally reachable in public, while the data endpoints on the same host are not. The contract is legible; the estate is closed.",
+    "testable_as": "On a public Connect host, GET /WSVistaWebClient/api-docs/creating-orders/seats-and-tickets returns 200 while GET /RESTData.svc/cinemas and GET /WSVistaWebClient/RESTData.svc/cinemas both return 404.",
+    "consequence_for_agents": "An implementer can read the exact shapes and still cannot exercise a single one of them, so nobody can measure a real release latency or a real floor from outside. That asymmetry is why CHANGEOVER's floor is a warranty an operator publishes from their own measurement rather than a number an outsider asserts.",
+    "spec_rules": ["O1"]
+  },
+  "method": "probed_live",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 60,
+  "half_life_basis": "This observation is about one exhibitor's deployment on one day. A single site can change its reverse proxy without telling anyone, and one host was probed, not a sample. Sixty days, and it is the weakest-grounded entry here.",
+  "confidence_at_observation": 0.9,
+  "citation": {
+    "url": "https://connect.westwindtheaters.com/WSVistaWebClient/api-docs/creating-orders/seats-and-tickets",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "locator": "Creating orders / Seats and tickets"
+  },
+  "evidence": {
+    "probe_request": "GET https://connect.westwindtheaters.com/RESTData.svc/cinemas ; GET https://connect.westwindtheaters.com/WSVistaWebClient/RESTData.svc/cinemas ; GET https://connect.westwindtheaters.com/WSVistaWebClient/api-docs/creating-orders/seats-and-tickets",
+    "response_status": 404,
+    "response_bytes": 1931,
+    "assertion": "Both data paths returned 404 (1931 and 1964 bytes); the documentation path on the same host returned 200 with 27760 bytes. response_status records the data endpoint, which is the claim.",
+    "reproduce": "curl -s -o /dev/null -w '%{http_code}\\n' https://connect.westwindtheaters.com/RESTData.svc/cinemas",
+    "probed_by": "independent_unauthenticated"
+  },
+  "notes": "Three unauthenticated GETs against paths the vendor's own published documentation names. No attempt was made to authenticate, enumerate, or reach any non-documented path."
+}

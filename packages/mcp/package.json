@@ -1,0 +1,15 @@
+{
+  "name": "@changeover/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The MCP binding (2026-07-28): exactly five tools, full 2020-12 input and output schemas.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./*": "./src/*"
+  },
+  "dependencies": {
+    "@changeover/core": "*",
+    "@changeover/schema": "*"
+  }
+}

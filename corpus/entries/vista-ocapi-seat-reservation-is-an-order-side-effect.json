@@ -1,0 +1,28 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-seat-reservation-is-an-order-side-effect",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "SetShowtime, with the seats request property"
+  },
+  "behaviour": {
+    "summary": "Seats are reserved by calling SetShowtime with a seats array on an existing order; the call reserves the seats and adds no tickets, and the order cannot be completed until enough ticket types are selected to fill them. The reservation has no identity of its own: its lifetime is the order's lifetime, and its release is the order's cancellation or expiry.",
+    "testable_as": "There is no create-reservation operation. The documented path to a held seat is: create an order, then SetShowtime with seats, and the reservation is observable only as the order's expiresAt plus the seats it names.",
+    "consequence_for_agents": "A hold that is a property of a larger commercial object inherits that object's whole lifecycle, including its silent extensions and its type immutability, so an agent cannot hold a seat without carrying an order it may never wish to complete. CHANGEOVER's Hold is the smallest object that can carry a deadline, and it ends at hand-off rather than at a transaction.",
+    "spec_rules": ["W1", "T1"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 270,
+  "half_life_basis": "This is architecture, not configuration: the shape of the order lifecycle is the product. It changes on a major redesign, not on a release. Nine months.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/orders/order-flows.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "This will reserve the selected seats but not add any tickets to the order. The order cannot be completed until enough ticket types are selected to fill the reserved seats.",
+    "locator": "Selecting seats only"
+  }
+}

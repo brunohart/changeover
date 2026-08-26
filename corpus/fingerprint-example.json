@@ -1,0 +1,73 @@
+{
+  "fingerprint_schema": "urn:changeover:schema:fingerprint:0.1",
+  "probe_version": "0.1.0",
+  "corpus_version": "0.1.0",
+  "probed_at": "2026-08-25T13:20:00+12:00",
+  "surface": {
+    "origin": "https://system.spektrix.com",
+    "label": "Spektrix API v3 demonstration client (apitesting), Web/Public mode",
+    "declared_vendor": "Spektrix",
+    "declared_product": "Spektrix API v3",
+    "tier": "arts_venue_platform",
+    "authorised": false
+  },
+  "observations": [
+    {
+      "entry_id": "spektrix-public-seat-plan-served-unauthenticated",
+      "verdict": "exhibits",
+      "method": "probed_live",
+      "observed_at": "2026-08-25T13:20:00+12:00",
+      "confidence": 1.0,
+      "evidence": {
+        "probe_request": "GET https://system.spektrix.com/apitesting/api/v3/instances/90801ADCHGPKGDSJCLPHLQJMGHDMHKLCK/plan",
+        "response_status": 200,
+        "response_bytes": 376084,
+        "assertion": "A seat-level plan with venue, areas, seats and capacity was served to an unauthenticated caller.",
+        "reproduce": "curl -s -o /dev/null -w '%{http_code} %{size_download}\\n' https://system.spektrix.com/apitesting/api/v3/instances/{instanceId}/plan"
+      }
+    },
+    {
+      "entry_id": "spektrix-basket-hold-visible-only-as-a-count",
+      "verdict": "exhibits",
+      "method": "probed_live",
+      "observed_at": "2026-08-25T13:20:00+12:00",
+      "confidence": 1.0,
+      "evidence": {
+        "probe_request": "GET https://system.spektrix.com/apitesting/api/v3/instances/90801ADCHGPKGDSJCLPHLQJMGHDMHKLCK/status",
+        "response_status": 200,
+        "assertion": "inBasket is present as a bare integer; the document carries no hold identifier, deadline or owner.",
+        "reproduce": "curl -s https://system.spektrix.com/apitesting/api/v3/instances/{instanceId}/status"
+      }
+    },
+    {
+      "entry_id": "veezi-session-refused-without-site-token",
+      "verdict": "does_not_exhibit",
+      "method": "probed_live",
+      "observed_at": "2026-08-25T13:20:00+12:00",
+      "confidence": 1.0,
+      "evidence": {
+        "probe_request": "GET https://system.spektrix.com/apitesting/api/v3/venues",
+        "response_status": 200,
+        "response_bytes": 1052,
+        "assertion": "This surface answers an unauthenticated read with 200 rather than refusing it, so it does not exhibit the recorded per-site-token refusal.",
+        "reproduce": "curl -s -o /dev/null -w '%{http_code}\\n' https://system.spektrix.com/apitesting/api/v3/venues"
+      },
+      "note": "A does_not_exhibit verdict against another vendor's entry is meaningful: the corpus is a set of behaviours, not a set of vendors."
+    },
+    {
+      "entry_id": "vista-ocapi-no-idempotency-convention-published",
+      "verdict": "indeterminate",
+      "method": "probed_live",
+      "observed_at": "2026-08-25T13:20:00+12:00",
+      "confidence": 1.0,
+      "note": "The write path was not exercised and will not be: whether this vendor sanctions write operations against its demonstration client is unverified. Whether an idempotency convention exists here therefore cannot be told from outside, and indeterminate is the honest verdict rather than does_not_exhibit."
+    }
+  ],
+  "summary": {
+    "entries_considered": 4,
+    "exhibits": 2,
+    "does_not_exhibit": 1,
+    "indeterminate": 1
+  },
+  "disclaimer": "Independent work. Not affiliated with, endorsed by or connected to any named vendor. Every behaviour recorded here comes from that vendor's own public documentation or its own publicly published surface, unauthenticated and read-only, with the date of retrieval."
+}

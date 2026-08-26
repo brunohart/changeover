@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-seat-release-runs-on-a-background-process",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "Order expiry (guide), CancelOrder"
+  },
+  "behaviour": {
+    "summary": "Explicit cancellation is documented as recommended rather than required, and the reason given is that it releases seats immediately rather than waiting for background processes which may take a few minutes. Release after abandonment is therefore eventually consistent, on an unstated bound, at the operator's own admission.",
+    "testable_as": "Abandon an order without cancelling and measure the interval until the seats become available to a second caller. The vendor states this is minutes; no bound is published.",
+    "consequence_for_agents": "Seats that no one holds still read as unavailable for an unstated interval, so an agent cannot distinguish a full house from a lagging sweeper, and neither can the exhibitor's own conversion numbers. CHANGEOVER makes release total and explicit, and C-RELEASE asserts seats are re-holdable within a MEASURED bound rather than a described one.",
+    "spec_rules": ["R1", "R3"]
+  },
+  "method": "vendor_stated",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 120,
+  "half_life_basis": "A claim about internal timing that no external party can check, on a page the vendor maintains. Believed on the vendor's authority alone, so it decays faster than a contract statement: four months.",
+  "confidence_at_observation": 0.6,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/orders/expiry.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "This will ensure seats are released immediately rather than waiting for background processes which may take a few minutes.",
+    "locator": "Client expectations, recommended client behaviour"
+  },
+  "verification_gap": "A few minutes is not a number. Turning this into a measurement needs tenant access and two callers, and the resulting series — real release latency at a real boundary — is exactly what nobody in this industry publishes."
+}

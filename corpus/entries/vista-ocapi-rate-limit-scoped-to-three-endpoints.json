@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "vista-ocapi-rate-limit-scoped-to-three-endpoints",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Vista Cloud Digital Platform, Omni-Channel API (OCAPI)",
+    "tier": "enterprise_cms",
+    "doc_root": "https://developer.vista.co/",
+    "endpoint": "Rate limiting (guide)"
+  },
+  "behaviour": {
+    "summary": "Rate limiting is documented, typed and narrow: a 429 carrying blockedUntilUtc, applied to three named endpoints selected because they could disclose sensitive information under repeated requests. No published limit governs the seat-reserving path, and no published budget bounds how many concurrent orders one caller may hold open.",
+    "testable_as": "The Rate limiting guide names exactly three endpoints and gives one response shape; the seat-reserving operation is not among them.",
+    "consequence_for_agents": "Exhaustion is the agentic failure mode that most resembles an attack, and the surface most exposed to it is the one with no published bound, so a well-behaved agent has nothing to be well-behaved against. CHANGEOVER publishes every limit it enforces in the capability document and treats an unpublished limit observed at runtime as a conformance failure.",
+    "spec_rules": ["X1", "X4"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 180,
+  "half_life_basis": "A published limits page changes when the product's protection posture changes, which is neither rare nor frequent. Half a year.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://developer.vista.co/digital-platform/getting-started/rate-limiting.md",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "Digital Platform will enforce rate limits on certain endpoints that could return sensitive information if maliciously subjected to repeated requests... The endpoints, and the specific endpoint parameters, that may be rate limited are as follows: AddVoucher, AddGiftCardPayment, GetGiftCardDetails",
+    "locator": "Rate limiting, whole page"
+  },
+  "verification_gap": "Infrastructure-level throttling that is not documented may still exist. The claim is about what a caller is told it may rely on, not about what a load balancer does."
+}

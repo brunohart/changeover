@@ -1,0 +1,29 @@
+{
+  "entry_schema": "urn:changeover:schema:corpus-entry:0.1",
+  "id": "veezi-seats-held-published-as-a-count",
+  "surface": {
+    "vendor": "Vista Group",
+    "product": "Veezi API, Sessions",
+    "tier": "smb_cms",
+    "doc_root": "https://api.us.veezi.com/help",
+    "endpoint": "GET /v1/session"
+  },
+  "behaviour": {
+    "summary": "A session carries SeatsAvailable, SeatsHeld, SeatsSold and SeatsHouse as four integers. SeatsHeld is documented as the number of seats being held by unpaid bookings. There is no hold object anywhere on this surface: no identifier, no deadline, no owner, and no operation that creates or releases one.",
+    "testable_as": "The published Session model lists SeatsHeld as a count with no accompanying hold identifier or expiry member, and the documented operation set for this surface is read-only reference data.",
+    "consequence_for_agents": "The word held appears in the model and means nothing an agent can act on: it can see that somebody holds seats and has no way to become that somebody. This is the clearest single statement of the gap CHANGEOVER exists to fill, at the tier where most of the estate actually is.",
+    "spec_rules": ["W2", "T1"]
+  },
+  "method": "documented",
+  "observed_at": "2026-08-25T13:20:00+12:00",
+  "half_life_days": 270,
+  "half_life_basis": "The Session model is the product's public shape and has been stable across years of this help site. Architecture rather than configuration: nine months.",
+  "confidence_at_observation": 0.95,
+  "citation": {
+    "url": "https://api.us.veezi.com/help/Sessions",
+    "retrieved_at": "2026-08-25T13:20:00+12:00",
+    "quote": "SeatsHeld  The number of seats that are being held by unpaid bookings",
+    "locator": "Sessions, response member table"
+  },
+  "verification_gap": "Whether a write or hold surface exists behind the site token is not established here; this entry claims only what the public help documents, which is a read model."
+}
