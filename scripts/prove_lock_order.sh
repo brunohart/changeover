@@ -221,8 +221,12 @@ try {
     console.log("cannot prove — " + err.message);
     console.log("  to make it provable:\n" + err.remedy.split("\n").map((l) => "    " + l).join("\n"));
     console.log("    bash scripts/prove_lock_order.sh");
+    // The eleven L1 assertions in sections 2-5 run on every substrate. Print
+    // what they held — this branch printed no PASS= line at all — and let a
+    // failure beat the gap.
+    console.log(`PASS=${fail ? 0 : pass}`);
     await b.close();
-    process.exit(EXIT_CANNOT_PROVE);
+    process.exit(fail ? 1 : EXIT_CANNOT_PROVE);
   }
   bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 3).join(" | ") : err));
 } finally {
