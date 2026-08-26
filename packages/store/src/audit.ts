@@ -106,10 +106,22 @@ async function occupySeat(db: Db, id: string, state: string): Promise<void> {
 
 async function auditSeatFloor(db: Db, ok: Say, bad: Say): Promise<void> {
   const def = await indexdef(db, "hold_seat_occupied");
-  if (/CREATE UNIQUE INDEX/i.test(def) && /\(occasion_id, seat_id\)/.test(def)) {
-    ok("hold_seat_occupied is a UNIQUE index on hold_seat (occasion_id, seat_id)");
+  // The KEY is asserted, not only the predicate. Corrected 2026-08-25: this
+  // read `(occasion_id, seat_id)`, and asserting only the predicate is what let
+  // the wrong key survive review. The scarce thing is a seat at a PHYSICAL
+  // SCREENING; `showtime_ref` exists so several Occasions may map to one
+  // screening, and keyed on occasion_id two of them can each hold seat F11 and
+  // both commit — oversell arriving through the constraint written to forbid it.
+  // The two keys are identical only while showtime_ref is absent, which is true
+  // of every golden fixture. SPEC.md §4.6 and §2.2 are authoritative; ADR-005
+  // was corrected to match them.
+  if (/CREATE UNIQUE INDEX/i.test(def) && /\(showtime_id, seat_id\)/.test(def)) {
+    ok("hold_seat_occupied is a UNIQUE index on hold_seat (showtime_id, seat_id) — the physical screening, not the listing");
   } else {
-    bad("hold_seat_occupied is not a unique index on (occasion_id, seat_id): " + (def || "absent"));
+    bad("hold_seat_occupied is not a unique index on (showtime_id, seat_id): " + (def || "absent"));
+  }
+  if (/\(occasion_id, seat_id\)/.test(def)) {
+    bad("hold_seat_occupied is keyed on occasion_id: two Occasions sharing one showtime_ref can each hold the same seat");
   }
 
   const predicate = predicateOf(def);
@@ -131,6 +143,34 @@ async function auditSeatFloor(db: Db, ok: Say, bad: Say): Promise<void> {
       ok("re-holding a claimed seat raises 23505 on hold_seat_occupied → 409 seat_contended");
     } else {
       bad("re-holding a claimed seat gave " + sqlstate(err) + "/" + constraintName(err) + ", not hold_seat_occupied");
+    }
+  }
+
+  // The case the wrong key made reachable, asserted behaviourally rather than
+  // by reading the index definition. Two DIFFERENT Occasions that share one
+  // showtime_ref are two listings of one physical screening — a premiere and a
+  // standard listing of the same 7pm show, or two price bands. Keyed on
+  // occasion_id these are distinct index entries and both inserts commit,
+  // selling one seat twice. Keyed on showtime_id the second raises 23505.
+  const SHARED_SHOWTIME = OCCASION.showtime_id;
+  const seat = "A:2";
+  await db.query(
+    "insert into hold_seat (hold_id, occasion_id, showtime_id, seat_id, state, held_until)" +
+      " values ($1, $2, $3, $4, 'live', clock_timestamp() + make_interval(secs => 600))",
+    [holdId("2"), "occ_premiere_listing", SHARED_SHOWTIME, seat],
+  );
+  try {
+    await db.query(
+      "insert into hold_seat (hold_id, occasion_id, showtime_id, seat_id, state, held_until)" +
+        " values ($1, $2, $3, $4, 'live', clock_timestamp() + make_interval(secs => 600))",
+      [holdId("3"), "occ_standard_listing", SHARED_SHOWTIME, seat],
+    );
+    bad("two Occasions sharing one showtime_ref each held seat " + seat + " — the house sold one seat twice");
+  } catch (err) {
+    if (sqlstate(err) === SQLSTATE.unique_violation && constraintName(err) === "hold_seat_occupied") {
+      ok("two Occasions on one showtime_ref cannot both hold a seat — oversell across listings raises 23505");
+    } else {
+      bad("cross-listing oversell gave " + sqlstate(err) + "/" + constraintName(err) + ", not hold_seat_occupied");
     }
   }
 }
