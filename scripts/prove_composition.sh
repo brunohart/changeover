@@ -36,6 +36,10 @@ cd "$(dirname "$0")/.." || exit 2
 [ -f packages/core/src/principal.ts ]         || { echo "cannot prove — packages/core/src/principal.ts missing (CORE-006)"; exit 2; }
 [ -f packages/core/src/access-log.ts ]        || { echo "cannot prove — packages/core/src/access-log.ts missing (CORE-007)"; exit 2; }
 [ -d packages/store/src/migrations ]          || { echo "cannot prove — packages/store/src/migrations/ missing (CORE-001)"; exit 2; }
+[ -f packages/http/src/headers.ts ]           || { echo "cannot prove — packages/http/src/headers.ts missing (BIND-001)"; exit 2; }
+[ -f packages/mcp/src/tools.ts ]              || { echo "cannot prove — packages/mcp/src/tools.ts missing (BIND-002)"; exit 2; }
+[ -f packages/http/test/lib/http-bench.ts ]   || { echo "cannot prove — packages/http/test/lib/http-bench.ts missing; §7 needs a live HTTP binding to answer, not a shape to read"; exit 2; }
+[ -f packages/mcp/test/lib/mcp-bench.ts ]     || { echo "cannot prove — packages/mcp/test/lib/mcp-bench.ts missing; §7 needs a connected MCP client, because an in-process read sees no transport"; exit 2; }
 
 # The P2 seam below is about whether two modules agree GIVEN a configured site
 # epoch. Fixed here so the assertion is about the two modules and not about the
@@ -53,14 +57,42 @@ import { HOLD_POLICY_DEFAULTS } from "./packages/core/src/guards.ts";
 import { getHold } from "./packages/core/src/get-hold.ts";
 import { releaseHold } from "./packages/core/src/release.ts";
 import { HOLD_COLUMNS, deriveState } from "./packages/core/src/derived.ts";
-import { holdSeatsDigest, keyHmac, requestDigest, withIdempotency } from "./packages/core/src/idempotency.ts";
+import {
+  KEY_MAX_LENGTH,
+  KEY_MIN_LENGTH,
+  KEY_PATTERN,
+  holdSeatsDigest,
+  keyHmac,
+  requestDigest,
+  withIdempotency,
+} from "./packages/core/src/idempotency.ts";
 import { HOLD_POLICY_PUBLISHED, principalBudgets } from "./packages/core/src/budgets.ts";
 import {
   HANDOFF_GATE_BUDGET_DEFAULT_MS,
   assertGateBudget,
   minPolicyMaxFloorMs,
 } from "./packages/core/src/principal.ts";
-import { epochHmac, writeAccessLog } from "./packages/core/src/access-log.ts";
+import { INTENT_DIGEST_PATTERN, epochHmac, writeAccessLog } from "./packages/core/src/access-log.ts";
+
+// The two bindings. Imported for their PUBLISHED constraints and then driven
+// over their own transports, because a constant that agrees and a server that
+// disagrees is the failure this section exists to catch.
+import { WIRE_ETAG_PATTERN } from "./packages/http/src/headers.ts";
+import {
+  ETAG_SCHEMA,
+  IDEMPOTENCY_KEY_SCHEMA,
+  INTENT_DIGEST_SCHEMA,
+  SEATS_SCHEMA,
+} from "./packages/mcp/src/tools.ts";
+import {
+  AGENT_TOKEN,
+  ETAG_A,
+  OCCASION_A,
+  call as httpCall,
+  holdBody,
+  httpBench,
+} from "./packages/http/test/lib/http-bench.ts";
+import { callTool, holdArgs, mcpBench } from "./packages/mcp/test/lib/mcp-bench.ts";
 
 let fail = 0, pass = 0;
 const ok  = (m) => { console.log("ok — " + m); pass++; };
@@ -274,6 +306,93 @@ try {
   (again.hold_id !== hold.hold_id && JSON.stringify(again.seats) === JSON.stringify(SEATS_AS_SORTED))
     ? ok("the same seats granted again to a new Hold — the loop closes end to end")
     : bad("the re-grant did not produce a distinct Hold over the same seats");
+
+  /* ── 7 · the binding seam: one set of wire constraints, two transports ──── */
+  //
+  // SPEC.md 6.2 does not ask the two bindings to be similar. It says "every
+  // constraint identical to the HTTP binding" and then writes three of them
+  // down. The one that matters most here is the member I3 deliberately EXCLUDES
+  // from D: the idempotency key itself. Because it is excluded, the two bindings
+  // can disagree about it while prove_digest_parity.sh stays green — and that is
+  // exactly what happened. Measured at the Gate 2 integration, before the fix:
+  // core published a 255-character ceiling and the MCP tool schema published
+  // 128, so a 200-character key was 201 Created over HTTP and schema_validation
+  // over MCP. An Agent moving one call between transports got a refusal where it
+  // had asked for a replay, and nothing in the suite could see it.
+  //
+  // Why the obvious cheaper check would not have caught it: both bindings had a
+  // passing proof of their own, both typechecked, and the digest they agree on
+  // is computed over a projection that omits the member they disagreed about.
+
+  IDEMPOTENCY_KEY_SCHEMA.maxLength === KEY_MAX_LENGTH
+    ? ok("the idempotency-key ceiling MCP publishes is the ceiling core enforces")
+    : bad("SPLIT CEILING — mcp maxLength=" + IDEMPOTENCY_KEY_SCHEMA.maxLength + " core KEY_MAX_LENGTH=" + KEY_MAX_LENGTH);
+
+  KEY_MAX_LENGTH === 128
+    ? ok("and it is 128, the number SPEC.md 6.2 writes down")
+    : bad("KEY_MAX_LENGTH is " + KEY_MAX_LENGTH + ", not the 128 of SPEC.md 6.2");
+
+  IDEMPOTENCY_KEY_SCHEMA.minLength === KEY_MIN_LENGTH
+    ? ok("and the floor agrees, so a conforming 22-character key is refused by neither")
+    : bad("key minLength mcp=" + IDEMPOTENCY_KEY_SCHEMA.minLength + " core=" + KEY_MIN_LENGTH);
+
+  IDEMPOTENCY_KEY_SCHEMA.pattern === KEY_PATTERN.source
+    ? ok("and the published pattern IS the enforced pattern, character class included")
+    : bad("key pattern mcp=" + IDEMPOTENCY_KEY_SCHEMA.pattern + " core=" + KEY_PATTERN.source);
+
+  INTENT_DIGEST_SCHEMA.pattern === INTENT_DIGEST_PATTERN.source
+    ? ok("D4 intent_digest is one pattern across the MCP tool schema and the core ingest guard")
+    : bad("intent_digest mcp=" + INTENT_DIGEST_SCHEMA.pattern + " core=" + INTENT_DIGEST_PATTERN.source);
+
+  ETAG_SCHEMA.pattern === WIRE_ETAG_PATTERN.source
+    ? ok("and the unquoted wire etag is one pattern across the MCP tool schema and the HTTP header contract")
+    : bad("etag mcp=" + ETAG_SCHEMA.pattern + " http=" + WIRE_ETAG_PATTERN.source);
+
+  (SEATS_SCHEMA.maxItems === 12 && SEATS_SCHEMA.uniqueItems === true)
+    ? ok("seats carries maxItems 12 and uniqueItems, the other two constraints 6.2 enumerates")
+    : bad("seats schema is " + JSON.stringify(SEATS_SCHEMA));
+
+  // A constant that agrees proves the two authors agree. Only the transports can
+  // say whether the two SERVERS do, so both are booted and asked the same thing.
+  const OVER_CEILING = "k".repeat(KEY_MAX_LENGTH + 1);
+  const AT_CEILING   = "k".repeat(KEY_MAX_LENGTH);
+  const http = await httpBench({});
+  const mcp  = await mcpBench({});
+  try {
+    const httpOver = await httpCall(http, "POST", "/changeover/v0/holds", {
+      token: AGENT_TOKEN,
+      headers: { "idempotency-key": OVER_CEILING },
+      body: holdBody(["A:1"], { occasion_id: OCCASION_A, occasion_etag: ETAG_A }),
+    });
+    const mcpOver = await callTool(mcp, "hold_seats", holdArgs(["A:1"], { idempotency_key: OVER_CEILING }));
+
+    (httpOver.status === 400 && httpOver.json && httpOver.json.code === "schema_validation")
+      ? ok("a key ONE character over the ceiling is 400 schema_validation over HTTP")
+      : bad("HTTP over-ceiling key: status=" + httpOver.status + " code=" + (httpOver.json && httpOver.json.code));
+
+    (mcpOver.isError === true && mcpOver.refusal && mcpOver.refusal.code === "schema_validation")
+      ? ok("and the same key is the same code over MCP — one answer, whichever transport it arrives on")
+      : bad("MCP over-ceiling key: isError=" + mcpOver.isError + " code=" + (mcpOver.refusal && mcpOver.refusal.code));
+
+    // Both refusals held nothing, so the seat is still free for the next pair.
+    const httpAt = await httpCall(http, "POST", "/changeover/v0/holds", {
+      token: AGENT_TOKEN,
+      headers: { "idempotency-key": AT_CEILING },
+      body: holdBody(["A:1"], { occasion_id: OCCASION_A, occasion_etag: ETAG_A }),
+    });
+    const mcpAt = await callTool(mcp, "hold_seats", holdArgs(["A:1"], { idempotency_key: AT_CEILING }));
+
+    httpAt.status === 201
+      ? ok("a key AT the ceiling is granted over HTTP, so the fence is not set one character short")
+      : bad("HTTP at-ceiling key: status=" + httpAt.status + " code=" + (httpAt.json && httpAt.json.code));
+
+    (mcpAt.isError !== true && mcpAt.structured && typeof mcpAt.structured.hold_id === "string")
+      ? ok("and granted over MCP, so both bindings admit exactly the same 128 characters")
+      : bad("MCP at-ceiling key: isError=" + mcpAt.isError + " code=" + (mcpAt.refusal && mcpAt.refusal.code));
+  } finally {
+    await http.close();
+    await mcp.close();
+  }
 
 } catch (err) {
   if (isRefusal(err)) bad("a refusal escaped the composition: " + err.code + " — " + err.reason);
