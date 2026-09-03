@@ -56,8 +56,10 @@ import { containsUri } from "@changeover/core/principal.ts";
 import { PROSE_BYTES_PER_RESPONSE, fitToProseBudget, proseBytes } from "@changeover/http/occasions.ts";
 import { REFUSAL_STATUS, isRefusal, refuse } from "@changeover/schema/refusal.ts";
 import type { Db } from "@changeover/store/db.ts";
+import { CannotProve } from "@changeover/store/db.ts";
+import type { OccasionSeed } from "@changeover/store/fixtures.ts";
 import { availableSeatIds, occasionSeedFromDocument, seedEstate } from "@changeover/store/fixtures.ts";
-import { migrate, resetHoldStore } from "@changeover/store/migrate.ts";
+import { migrate } from "@changeover/store/migrate.ts";
 
 import type { Check } from "./poison.ts";
 import {
@@ -400,15 +402,51 @@ export function etagSurvivesPoison(cases: readonly GoldenCase[], mint: Mint): Ch
 
 /* -- 4 . C-INJECT.2 — the strict boundary still refuses ---------------------- */
 
+/**
+ * Two principal scopes nothing else in this repository uses.
+ *
+ * They are how every row count below is scoped to *this run*. The alternative —
+ * `resetHoldStore` at setup and then `count(*)` over the whole table — is the
+ * house pattern and is correct for a suite running alone, but it is wrong twice
+ * over against the shared Postgres at `CHANGEOVER_PG_URL`: it destroys the
+ * fixtures of anything running beside this proof, and it makes *that* thing's
+ * rows able to fail S1 here. "The refused hold wrote nothing" is a claim about
+ * what this hold wrote, so it is counted that way.
+ */
+const CROSSING_SCOPE = "ps_inject_crossing";
+const ATTESTED_SCOPE = "ps_inject_attested";
+const SCOPES: readonly string[] = [CROSSING_SCOPE, ATTESTED_SCOPE];
+
 const credential = (scope: string) => ({ agent_id: "agt_reference", principal_scope: scope });
 
-async function rowsOutstanding(db: Db): Promise<number> {
-  let total = 0;
-  for (const table of ["hold", "hold_seat", "hold_cluster", "hold_slot"]) {
-    const r = await db.query<{ n: string }>(`select count(*)::text as n from ${table}`);
-    total += Number(r.rows[0]?.n ?? 0);
-  }
-  return total;
+/** Every row this run could have written, across all four hold tables. */
+async function rowsForThisRun(db: Db): Promise<number> {
+  const r = await db.query<{ n: string }>(
+    `select (
+        (select count(*) from hold where principal_scope = any($1)) +
+        (select count(*) from hold_seat hs join hold h on h.hold_id = hs.hold_id
+           where h.principal_scope = any($1)) +
+        (select count(*) from hold_cluster where principal_scope = any($1)) +
+        (select count(*) from hold_slot where principal_scope = any($1))
+      )::text as n`,
+    [SCOPES],
+  );
+  return Number(r.rows[0]?.n ?? 0);
+}
+
+/** This run's own rows, and only this run's. `hold` cascades to the other three. */
+async function clearThisRun(db: Db): Promise<void> {
+  await db.query("delete from hold where principal_scope = any($1)", [SCOPES]);
+}
+
+/** Which of the Occasions this proof seeded are no longer in the store. */
+async function missingOccasions(db: Db, ids: readonly string[]): Promise<string[]> {
+  const r = await db.query<{ occasion_id: string }>(
+    "select occasion_id from occasion where occasion_id = any($1) and not withdrawn",
+    [ids],
+  );
+  const present = new Set(r.rows.map((row) => row.occasion_id));
+  return ids.filter((id) => !present.has(id));
 }
 
 /**
@@ -425,12 +463,42 @@ export async function strictBoundarySurvivesPoison(
   db: Db,
   cases: readonly GoldenCase[],
 ): Promise<Check[]> {
-  const checks: Check[] = [];
+  const seeds = cases.map((c) => occasionSeedFromDocument(c.poisoned, { cluster: GOLDEN_CLUSTER }));
+  const ids = seeds.map((s) => s.occasion_id);
 
   await migrate(db);
-  await resetHoldStore(db);
-  const seeds = cases.map((c) => occasionSeedFromDocument(c.poisoned, { cluster: GOLDEN_CLUSTER }));
-  await seedEstate(db, { name: "c-inject-poisoned", occasions: seeds });
+
+  // Three attempts, and the retry is not politeness. Against the shared
+  // Postgres another proof can remove this estate between the seed and the
+  // hold, and the verb then answers `occasion_not_found` — a refusal that looks
+  // exactly like a boundary failure and is not one. So: if a hold fails and the
+  // Occasions this proof seeded are still in the store, the failure is real and
+  // is reported. If they are gone, somebody else took them, and after three
+  // attempts that is CannotProve — exit 2 — never exit 1. The repository's
+  // credibility rests on the difference between *your server violated the
+  // boundary* and *we could not reach your server*, and this is that difference
+  // arriving in practice rather than in a doctrine paragraph.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await clearThisRun(db);
+    await seedEstate(db, { name: "c-inject-poisoned", occasions: seeds });
+    try {
+      return await boundaryChecks(db, seeds);
+    } catch (err) {
+      const missing = await missingOccasions(db, ids);
+      if (missing.length === 0) throw err;
+      if (attempt === 3) {
+        throw new CannotProve(
+          `the estate this proof seeded was removed from the store mid-run by another process (${missing.join(", ")} absent after ${attempt} attempts)`,
+          "run this proof against a store nothing else is writing — unset CHANGEOVER_PG_URL to use PGlite, which hands every process its own in-memory database",
+        );
+      }
+    }
+  }
+  throw new Error("unreachable");
+}
+
+async function boundaryChecks(db: Db, seeds: readonly OccasionSeed[]): Promise<Check[]> {
+  const checks: Check[] = [];
 
   const seedOf = (occasion_id: string) => {
     const seed = seeds.find((s) => s.occasion_id === occasion_id);
@@ -441,7 +509,7 @@ export async function strictBoundarySurvivesPoison(
   const embassy = seedOf(EMBASSY);
   const multiplex = seedOf(MULTIPLEX_SAT);
 
-  const before = await rowsOutstanding(db);
+  const before = await rowsForThisRun(db);
 
   // The customer chose the 35mm print. The agent offers the DCP.
   let refusalReason = "";
@@ -455,7 +523,7 @@ export async function strictBoundarySurvivesPoison(
         seats: availableSeatIds(multiplex, 1),
         requested_floor_ms: 120000,
       },
-      credential("ps_crossing"),
+      credential(CROSSING_SCOPE),
     );
     checks.push(broke("C-INJECT.2d", "the hold across the strict boundary was GRANTED under poisoned prose"));
   } catch (err) {
@@ -476,7 +544,7 @@ export async function strictBoundarySurvivesPoison(
     );
   }
 
-  const after = await rowsOutstanding(db);
+  const after = await rowsForThisRun(db);
   checks.push(
     after === before
       ? held(
@@ -516,7 +584,7 @@ export async function strictBoundarySurvivesPoison(
       seats: availableSeatIds(embassy, 1),
       requested_floor_ms: 120000,
     },
-    credential("ps_attested"),
+    credential(ATTESTED_SCOPE),
   );
   checks.push(
     attested.state === "live"

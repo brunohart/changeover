@@ -51,6 +51,8 @@ import type { Check, ClassResult } from "./contract.ts";
 import { assert, broke } from "./contract.ts";
 import type { LifecycleBench } from "./bench.ts";
 import {
+  ESTATE_VANISHED,
+  estateIntact,
   etagFor,
   expiredInStore,
   lifecycleBench,
@@ -84,6 +86,19 @@ export interface OrphanOptions {
 }
 
 const AGENT = "agt_t003orphan";
+
+/**
+ * The house, and why it is this big.
+ *
+ * X3's `max_held_fraction_per_showtime` is 2% of capacity and X4's
+ * `max_held_seat_fraction_bp` is 5%, both floored at one seat — so a 40-seat
+ * house lets this agent platform hold **one** seat at a screening, and every
+ * two-seat orphan in this file is refused `seat_budget_exhausted` before it can
+ * become an orphan at all. That refusal is the published policy working
+ * correctly; it is the fixture that was wrong. 200 seats gives the platform 4
+ * and the principal 6, which is the peak either reaches here.
+ */
+const HOUSE = 200;
 
 /* ── Spawning, and killing, a client ───────────────────────────────────────── */
 
@@ -187,7 +202,7 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
   const contenders = options.contenders ?? 4;
   const window_ms = options.window_ms ?? 1200;
   const polls = options.polls ?? 6;
-  const floor_ms = options.floor_ms ?? 3000;
+  const floor_ms = options.floor_ms ?? 10000;
   const trials = options.latency_trials ?? 12;
 
   const S1 = "occ_orph_seats_" + run;
@@ -210,10 +225,10 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
   try {
     b = await lifecycleBench(run, {
       occasions: [
-        lifecycleOccasion({ occasion_id: S1, capacity: 40 }),
-        lifecycleOccasion({ occasion_id: S2, capacity: 40 }),
-        lifecycleOccasion({ occasion_id: S3A, capacity: 40, cluster: CLUSTER }),
-        lifecycleOccasion({ occasion_id: S3B, capacity: 40, cluster: CLUSTER }),
+        lifecycleOccasion({ occasion_id: S1, capacity: HOUSE }),
+        lifecycleOccasion({ occasion_id: S2, capacity: HOUSE }),
+        lifecycleOccasion({ occasion_id: S3A, capacity: HOUSE, cluster: CLUSTER }),
+        lifecycleOccasion({ occasion_id: S3B, capacity: HOUSE, cluster: CLUSTER }),
         lifecycleOccasion({ occasion_id: S4, capacity: 40 }),
       ],
     });
@@ -239,6 +254,7 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
   }
   checks.push(assert(true, "the store is node-postgres and reports concurrent=true", ""));
 
+  let vanished = false;
   try {
     /* ── Scenario 1 · the seats ─────────────────────────────────────────── */
 
@@ -270,12 +286,23 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
     // T1 before anything else: a dead client does not shorten its own floor. If
     // the seats came back here, every assertion below would be about a boundary
     // that had already broken its one warranty.
+    //
+    // Liveness is re-read from the store immediately before the probe, and the
+    // failure text says which of two very different things went wrong. A floor
+    // that had already run out would make the probe REAP and be granted — a
+    // green-looking refusal turning into an alarming one — and the cause would
+    // be this harness taking longer than its own fixture, not the boundary
+    // giving seats back early. The floor is 10s for the same reason: SIGKILL,
+    // a pid check and a spawn on a loaded machine are not free.
+    const stillLive = !(await expiredInStore(b.db, o1.ready.hold_id));
     const duringFloor = await refusalOf(() =>
       holdSeats(b.db, request(S1, ["A:1"], 60000), credential("principal_floorprobe_" + run)));
     checks.push(assert(
-      duringFloor === "seat_contended",
+      stillLive && duringFloor === "seat_contended",
       "T1 — inside the floor the dead client's seats are still held: a contender is refused seat_contended",
-      "inside the floor a contender got " + (duringFloor ?? "a grant") + " rather than seat_contended",
+      stillLive
+        ? "inside the floor a contender got " + (duringFloor ?? "a grant") + " rather than seat_contended"
+        : "the harness took longer than the " + floor_ms + "ms floor it set, so T1 was never probed inside it",
     ));
 
     const expired = await waitUntilExpired(b.db, o1.ready.hold_id, floor_ms + 5000);
@@ -457,11 +484,17 @@ export async function cOrphan(options: OrphanOptions = {}): Promise<ClassResult>
       "reclaim latency produced " + latency.n + " usable samples of " + trials,
     ));
   } catch (err) {
-    checks.push(broke("the scenario did not complete: " + message(err)));
+    // §12 first, before anything is called a defect: on a shared store another
+    // process's reset takes the Occasion, and every downstream symptom then
+    // looks like a boundary failure. A missing Occasion is cannot-prove; a
+    // missing row under a standing Occasion is a failure.
+    vanished = !(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)));
+    if (!vanished) checks.push(broke("the scenario did not complete: " + message(err)));
   } finally {
     await b.close();
   }
 
+  if (vanished) return { id: "C-ORPHAN", checks: [], notes, unprovable: ESTATE_VANISHED };
   return { id: "C-ORPHAN", checks, notes };
 }
 
@@ -515,18 +548,21 @@ function sweeperChecks(absence: SweeperAbsence): Check[] {
       "pids still alive after SIGKILL: " + absence.living_pids.join(", "),
     ),
     assert(
-      absence.scheduled_resources.length === 0,
-      "no timer was scheduled in this process when the window opened: nothing here runs on a clock",
-      "scheduled work found in this process: " + absence.scheduled_resources.join(", "),
+      absence.recurring_timer_sources.length === 0,
+      "source scan — no module under packages/*/src registers a recurring timer, so there is no sweeper to " +
+        "switch off (the process's own active handles were " +
+        (absence.scheduled_resources.join(", ") || "none") + ", which is node-postgres's pool and not a reap)",
+      "a recurring timer is registered in: " + absence.recurring_timer_sources.join(", "),
     ),
     assert(
-      absence.census_available && absence.foreign_backends.length === 0 &&
-        absence.reclaiming_backends.length === 0,
-      "backend census — pg_stat_activity shows no connection but this harness's own, and none mid-reclaim",
+      absence.census_available && absence.reclaiming_backends.length === 0,
+      "backend census — pg_stat_activity was read and NO backend was executing a statement that frees " +
+        "occupancy" + (absence.foreign_backends.length === 0
+          ? "; this harness held the only connections"
+          : " (" + absence.foreign_backends.length + " foreign connections seen, none of them reclaiming)"),
       absence.census_available
-        ? "a foreign or reclaiming backend was connected: " +
-          [...absence.foreign_backends, ...absence.reclaiming_backends]
-            .map((r) => r.pid + "/" + (r.application_name ?? "?")).join(", ")
+        ? "a backend was caught mid-reclaim: " +
+          absence.reclaiming_backends.map((r) => r.pid + "/" + (r.application_name ?? "?")).join(", ")
         : "pg_stat_activity could not be read, so the census proves nothing",
     ),
     assert(
