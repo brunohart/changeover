@@ -151,6 +151,29 @@ Paths are repository-relative to `/Users/brunohart/changeover`.
 | **TEST-007** | `packages/conformance/src/run.ts` · `src/report.ts` · `schemas/report.schema.json` · `packages/cli/src/commands/conform.ts` | every `src/classes/*.ts` · the eight document schemas |
 | **integrator** | `scripts/run_proofs.sh` · `.github/workflows/**` · all git operations | — |
 
+### What Gate 1 actually created outside those globs, and who owns it now
+
+Recorded at the Gate 1 integration so the next wave does not collide with it. Every one of these was a reasonable thing to write and none of them collided — but they are not in the table above, which means nothing was stopping a second author from writing the same path.
+
+| Path | Created by | Now owned by | Why it exists |
+|---|---|---|---|
+| `scripts/prove_lock_order.sh` *(in table)* · `scripts/prove_idempotent_race.sh` · `scripts/prove_no_fanout_concurrent.sh` | CORE-002 · CORE-005 · CORE-006 | same item as its sibling | The **concurrency half** of a gate, split out so the provable half can exit 0 while the half that needs two connections exits 2. This split is correct and should be the pattern: one script per gate that can be proven here, one per gate that cannot. |
+| `scripts/prove_pii_ingest.sh` | CORE-007 | **CORE-007** | P1 ingest refusal, proven at the boundary. **TEST-005 must not write this path** — its C-PII-INGEST class module is `packages/conformance/src/classes/c-pii-ingest.ts`, and its two proof scripts are `prove_injection_fails.sh` and `prove_hint_rejected.sh`. Extend this one or add a differently-named one. |
+| `packages/core/src/state.ts` · `packages/core/src/release-hold.ts` | CORE-003 | CORE-003 | Re-export shims under the names the backlog used. No second implementation — both forward to `derived.ts` / `release.ts`. |
+| `packages/core/test/lib/hold-fixtures.ts` | CORE-003 | CORE-003 | `mintHold()` puts a Hold directly into any of the six derived states, including *expired with nothing reaped*, which the grant verb cannot produce. **Now a shared dependency**: `prove_release_total.sh` names it as a precondition and other items will. Treat its signature as a contract. |
+| `scripts/prove_composition.sh` | integrator | integrator | The seams between modules, which no single item's proof can see. See §11. |
+
+### The seam Gate 1 left open
+
+**`packages/core/src/hmac.ts` was never written.** It is in CORE-007's glob and CORE-007 built only `access-log.ts`. Two modules independently hash under P2 and they are **not wired to the same key**:
+
+- `idempotency.ts` (CORE-005) hashes the Idempotency-Key with `keyHmac()` → `siteEpochKey()`, which reads `CHANGEOVER_HMAC_KEY` and **mints a per-process random when it is unset**.
+- `access-log.ts` (CORE-007) hashes the same key with `epochHmac(epoch, …)`, where `epoch: SiteEpoch {site_epoch_id, key}` is supplied **by the caller**.
+
+Measured: with `CHANGEOVER_HMAC_KEY` set and `SiteEpoch.key` built from it, the two agree exactly. With it unset they can never agree, and nothing in the tree says so. Two consequences an operator would find the hard way: an access-log row cannot be correlated to the idempotency record it belongs to, and the `idempotency` table carries no `site_epoch_id`, so crypto-shredding an epoch — which is the entire mechanism P2 names — shreds the log and leaves the idempotency digests hashed under a key nothing names.
+
+**Whoever writes `hmac.ts` owns resolving this**, and `prove_composition.sh` asserts the agreement so it cannot silently drift while they do. Until then, a binding MUST construct `SiteEpoch.key` from `CHANGEOVER_HMAC_KEY`.
+
 ### Files nobody may touch, for any reason
 
 ```
@@ -294,6 +317,43 @@ if (String(err).includes("duplicate key")) …  // passes in English; fails in t
 
 **Branch on the constraint name, never on the bare `23505`.** Two partial unique indexes both raise `23505` and they mean entirely different refusals. `sqlstate()` shape-checks against `/^[0-9A-Z]{5}$/` precisely so that `ENOENT` on `err.code` cannot be mistaken for a SQLSTATE.
 
+### `clock_timestamp()` is VOLATILE — read it once, and it has bitten this build
+
+`clock_timestamp()` is re-evaluated at **every occurrence**, not once per statement. `now()` is `STABLE` and is transaction start, so repeated reads of *it* are identical — which is exactly why the trap is invisible until you use the other one.
+
+The `hold` table's own CHECK is an equality:
+
+```sql
+constraint hold_floor_derived
+  check (floor_deadline = granted_at + (floor_ms * interval '1 millisecond'))
+```
+
+So a fixture that ages a Hold like this **cannot satisfy it**:
+
+```sql
+-- WRONG. Two reads, two different microseconds, and 23514 hold_floor_derived.
+update hold set granted_at     = clock_timestamp() - interval '10 minutes',
+                floor_deadline = clock_timestamp() - interval '10 minutes' + (floor_ms * interval '1 millisecond')
+ where hold_id = $1
+```
+
+```sql
+-- RIGHT. One read, joined in, used as many times as you like.
+update hold set granted_at     = t.g - interval '10 minutes',
+                floor_deadline = t.g - interval '10 minutes' + (floor_ms * interval '1 millisecond')
+  from (select clock_timestamp() as g) t
+ where hold_id = $1
+```
+
+**This is not hypothetical.** Four sites across CORE-005's test file and proof script carried the wrong form. It failed roughly **one whole-suite run in twelve** — often enough to be real, rarely enough that every agent who ran it saw green and reported green. `packages/store/test/schema.test.ts` already had the right idiom; the drift went the other way.
+
+Two ways to stay out of it:
+
+- Ageing an existing Hold? Shift the columns **relative to themselves** — `granted_at = granted_at - interval '10 minutes'` — which preserves every derived equality by construction and reads no clock at all. `prove_lock_order.sh` does this.
+- Setting them fresh? Use `GRANT_CLOCK_SUBQUERY` from `packages/core/src/clock.ts`, which is documented as *"the single-evaluation form of `GRANT_CLOCK`. Join it into a statement's FROM"* and exists for precisely this.
+
+A corollary for anyone writing a repeated measurement: **an intermittent failure is a failure.** If a run is green, run it ten more times before you report a number.
+
 ### What PGlite cannot do, and what you must do about it
 
 PGlite is **single-connection and in-process**. True multi-connection concurrency, lock contention and `40P01` deadlock detection are **not reproducible on it**. Docker's daemon is not running on this machine and `psql` is not installed, so there is no real multi-connection Postgres available right now.
@@ -354,9 +414,15 @@ Rules, all of them load-bearing:
 
 ### Registering a proof
 
-`scripts/run_proofs.sh` carries a literal `PROOFS=(…)` array. **Only the integrator edits it.** Write your script, verify it standalone, and name it in your return — the integrator adds it at the gate. Do not edit `run_proofs.sh`; do not add your script by hand.
+**There is nothing to register.** `scripts/run_proofs.sh` **discovers** `scripts/prove_*.sh` with `find … | sort`. Dropping your script into `scripts/` puts it in the suite on the next run — no array to edit, no shared registry file for twenty-five authors to contend on, and no way to write a proof and then forget to wire it up. A proof that is broken on arrival turns the suite red immediately, which is the point.
 
-The five root-commit proofs currently pass: `PASS=5 FAIL=0 UNPROVABLE=0`, exit `0`. **They must still exit 0 when you are done.** Run `npm run proofs` before you return.
+The corollary is that a half-written proof in `scripts/` is already gating everyone. Verify it standalone before you leave it there.
+
+**Do not edit `run_proofs.sh`** — it is the integrator's, and there is now no reason to want to.
+
+The five root-commit proofs must still exit 0 when you are done: `prove_spec_first`, `prove_spec_examples`, `prove_etag_golden`, `prove_member_manifest`, `prove_no_settlement_verb`. Run `npm run check` before you return — it is `typecheck && test && proofs`, and the first two catch a broken seam in seconds where the third catches it in a stack trace.
+
+*Measured at the Gate 1 integration, 2026-08-25:* `npm run check` → tsc exit 0 · `node --test` 328 pass / 0 fail · `run_proofs.sh` PASS=19 FAIL=0 UNPROVABLE=4, exit 2. The four unprovable are `prove_lock_order`, `prove_idempotent_race`, `prove_no_fanout_concurrent` and `prove_migrations_pg` — every one of them concurrency-gated on `CHANGEOVER_PG_URL`, and every one correct to exit 2 here.
 
 ---
 
@@ -616,7 +682,48 @@ node packages/cli/src/bin.ts <cmd>   # the CLI, locally
 
 ## 10 · The four rules that override everything here
 
-1. **You do not commit, and you do not run git.** No `add`, `commit`, `checkout`, `stash`, `push`. The integrator commits at each gate. Concurrent agents sharing one git index corrupt it.
+1. **You never run git directly** — no `add`, `commit`, `checkout`, `stash`, `push`, `rebase`. Concurrent agents sharing one git index corrupt it. You commit *continuously*, in small coherent units, through the mutex helper, which serialises `.git/index.lock` and restricts each commit to a pathspec so you cannot sweep up a neighbour's half-written file:
+
+   ```bash
+   bash scripts/dev/micro-commit.sh "<subject>" <path> [<path> ...]
+   ```
+
+   Exit codes: `0` committed · `1` nothing to commit (fine) · `2` lock timeout · `3` refused. Commit when a unit becomes **true** — a module, a migration, a proof script, a test file, a fix — not when your item ends. Pass explicit paths, never a bare `.` and never `-A`. Match the subject style already in `git log --oneline`: lowercase after the area prefix, saying what became true and, where there is room, why it matters. No conventional-commit prefixes; the helper refuses them.
 2. **You write only inside the globs §2 gives you.** Another agent owns every other path and is writing to it right now.
 3. **You do not run `npm install`.** Declare what is missing; make the affected assertion `exit 2`.
 4. **Never fake a pass.** `0` holds, `1` fails, `2` cannot prove. Deleting an assertion to make a suite green is the worst outcome available to you.
+
+---
+
+## 11 · The composition gate
+
+`scripts/prove_composition.sh` — 22 checks, exit 0, added at the Gate 1 integration.
+
+Every other proof in `scripts/` is written by the agent that owns the module under test, and each is honest about its own module. None of them can be honest about the **join**. CORE-005 wraps a verb it does not own; CORE-006 plugs a guard into a seam it did not declare; CORE-003 reads rows CORE-002 wrote; CORE-007 hashes a value CORE-005 also hashes. Each of those is a pair of files that typecheck independently and can still disagree at runtime — and nothing in the tree calls them together, because the two bindings that eventually will are still empty directories.
+
+`npx tsc --noEmit` passes on every one of those seams. A type is a claim about shape; these are claims about **values agreeing**: one digest projection, one seat order, one set of published numbers, one epoch key, one M1. The only way to see those is to run the stack.
+
+What it asserts, and why each one is a seam rather than a rule:
+
+| Assertion | The seam |
+|---|---|
+| The enforced policy and the published policy agree on every shared member; nothing enforced is unpublished | `guards.ts` clamps with `HOLD_POLICY_DEFAULTS`, `budgets.ts` publishes `HOLD_POLICY_PUBLISHED`. `budgets.ts` already refuses to load on drift — this makes the property legible instead of arriving as a module-init crash |
+| The published policy funds X6 at its own numbers | A `policy_max_floor_ms` below `handoff_gate_budget_ms + clock_guard_ms + headroom` makes a hand-off gate unsatisfiable at the numbers this Server actually ships |
+| `holdSeatsDigest(r) === requestDigest(decisionMembers(r))` | I3's binding parity is structural only while CORE-005 projects through CORE-002's exported `decisionMembers()`. If it ever re-derives `D` from a body, both bindings still work and they disagree |
+| Seats sort identically in `D`, in the lock order and in the granted document — asserted with `F:2, F:10`, where byte order and human order differ | Three modules hold an opinion about seat order. Handing them an already-sorted array asserts nothing |
+| The budget guard's `hold_slot` row exists after the grant | A guard that typechecks and no-ops passes every response-shaped assertion above it |
+| The replayed state, the `get_hold` state and `deriveState()` on the row are all one derivation | I4 re-projects state at replay; two M1s disagree the first time one of them learns a new marker |
+| `keyHmac(key) === epochHmac(epoch, key)`, and the raw key is nowhere in the log | The P2 seam of §2. Asserts the agreement so it cannot silently drift while `hmac.ts` is still unwritten |
+| Release frees exactly the seats the grant took, returns the budget slot, and the seats grant again | The loop closes — which is the whole product |
+
+It is single-connection and that is not a concession: every assertion is a property of one call through several modules. The concurrency assertions live in `prove_lock_order.sh`, `prove_idempotent_race.sh`, `prove_no_fanout_concurrent.sh` and `prove_migrations_pg.sh` and correctly exit 2 here.
+
+**When a binding lands, extend this file rather than writing a second one.** BIND-001 and BIND-002 both claim digest parity with core; this is where that claim becomes an assertion over one running stack.
+
+### One sharp edge it documents
+
+`deriveState()` declares `HoldFacts.expires_at` as an RFC 3339 **string**. A bare `select * from hold` hands it a `Date`, and the comparison then **silently returns `expired` for a live Hold** — no throw, because `Row` is `Record<string, unknown>` and the cast is unchecked. That is the exact failure M1 exists to prevent, arriving through the one seam the type system cannot see. Read the hold table through **`HOLD_COLUMNS`**, which CORE-003 exports for this and which renders every timestamp as RFC 3339. Every binding that touches the table directly must go through it.
+
+### A follow-up that is still open
+
+`packages/cli/src/bin.ts` now exists, so `packages/cli/package.json`'s `"bin": { "changeover": "./src/bin.ts" }` would link on the next `npm install` — but no agent may run one, so `node_modules/.bin/changeover` is still absent. The canonical local invocation remains `node packages/cli/src/bin.ts <cmd>`, which works today and prints `derive` and `lint`.

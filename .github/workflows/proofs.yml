@@ -15,5 +15,23 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: npm install --no-audit --no-fund
+
+      # The two checks that fail FASTEST and most legibly run first. A broken
+      # seam between two packages — a renamed export, a changed signature, a
+      # drifted wire type — surfaces here as one type error naming the file,
+      # where the proof suite would surface it forty seconds later as a
+      # stack trace inside a `node -e` string. Neither was gated before, so a
+      # change could turn every cross-package import red and still show green.
+      - name: Typecheck the whole workspace
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Run every test
+        run: node --test
+
+      # Last, because it is the slowest and because it subsumes the others'
+      # subject matter. --allow-unprovable is for CI ONLY: no Postgres and no
+      # Docker daemon exist here, so every concurrency proof exits 2. It never
+      # hides a FAILURE — it maps a whole-suite exit 2 to 0 and prints the
+      # unprovable inventory loudly.
       - name: Run every proof
         run: bash scripts/run_proofs.sh --allow-unprovable

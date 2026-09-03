@@ -122,10 +122,15 @@ try {
     // The deadline passes. No reap runs and no sweeper exists — M1 derives.
     // make_interval rather than an interval literal, because this program lives
     // inside a single-quoted bash string and a SQL literal cannot be spelled here.
+    // ONE read of the clock, joined in, and used three times: clock_timestamp()
+    // is VOLATILE and re-evaluated at every occurrence, so separate reads land
+    // in separate microseconds and hold_floor_derived — which requires
+    // floor_deadline = granted_at + floor_ms EXACTLY — rejects the row.
     await b.db.query(
-      "update hold set granted_at = clock_timestamp() - make_interval(mins => 20),"
-      + " floor_deadline = clock_timestamp() - make_interval(mins => 20) + make_interval(secs => floor_ms / 1000.0),"
-      + " expires_at = clock_timestamp() - make_interval(mins => 20) + make_interval(secs => floor_ms / 1000.0)"
+      "update hold set granted_at = t.g - make_interval(mins => 20),"
+      + " floor_deadline = t.g - make_interval(mins => 20) + make_interval(secs => floor_ms / 1000.0),"
+      + " expires_at = t.g - make_interval(mins => 20) + make_interval(secs => floor_ms / 1000.0)"
+      + " from (select clock_timestamp() as g) t"
       + " where hold_id = $1",
       [granted.hold_id],
     );
@@ -256,12 +261,13 @@ try {
     // what is under test is this layers replay of one, so the document is
     // assembled at the execute seam that divides them.
     const r = await b.db.query(
-      "update hold set granted_at = clock_timestamp() - make_interval(mins => 30),"
-      + " floor_deadline = clock_timestamp() - make_interval(mins => 30) + make_interval(secs => floor_ms / 1000.0),"
-      + " expires_at = clock_timestamp() - make_interval(mins => 10),"
-      + " handed_off_at = clock_timestamp() - make_interval(mins => 25),"
+      "update hold set granted_at = t.g - make_interval(mins => 30),"
+      + " floor_deadline = t.g - make_interval(mins => 30) + make_interval(secs => floor_ms / 1000.0),"
+      + " expires_at = t.g - make_interval(mins => 10),"
+      + " handed_off_at = t.g - make_interval(mins => 25),"
       + " handoff_floor_ms = 180000,"
-      + " claim_expires_at = clock_timestamp() - make_interval(mins => 10)"
+      + " claim_expires_at = t.g - make_interval(mins => 10)"
+      + " from (select clock_timestamp() as g) t"
       + " where hold_id = $1"
       + " returning " + rfc3339Sql("handed_off_at") + " as handed_off_at,"
       + " " + rfc3339Sql("claim_expires_at") + " as claim_expires_at",
