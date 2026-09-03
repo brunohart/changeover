@@ -53,6 +53,55 @@ const storedDigest = async (db, verb) => {
 const http = await httpBench();
 const mcp  = await mcpBench();
 
+/**
+ * Do these two handles reach the same physical cluster?
+ *
+ * Asked by holding a transaction-scoped advisory lock on one and trying for the
+ * same lock on the other, rather than by reading db.driver — the question is
+ * whether the two benches share STATE, and a behavioural answer cannot drift
+ * from the thing it answers. The lock is xact-scoped so a pooled connection
+ * cannot leak it: it is released by the commit that ends the probe.
+ */
+async function sharesAStore(a, b) {
+  const KEY = "7301293811";
+  return await a.transaction(async (tx) => {
+    const mine = await tx.query("select pg_try_advisory_xact_lock($1::bigint) as got", [KEY]);
+    if (mine.rows[0]?.got !== true) return true;
+    const theirs = await b.transaction(async (tx2) => {
+      const r = await tx2.query("select pg_try_advisory_xact_lock($1::bigint) as got", [KEY]);
+      return r.rows[0]?.got === true;
+    });
+    return theirs === false;
+  });
+}
+
+// This proof compares the digest each binding wrote TO ITS OWN STORE. Two
+// separate stores is not a convenience here, it is the entire method — and
+// openDb() reads one CHANGEOVER_PG_URL, so under a real Postgres both benches
+// land in one database and every assertion below quietly changes meaning:
+//
+//   · the HTTP call takes A:1/A:2, so the MCP call is refused seat_contended —
+//     which at least fails loudly;
+//   · "the HTTP store holds exactly one row" and "the MCP store holds exactly
+//     one row" BOTH pass, on a single shared row, because each counts whatever
+//     handle it was given;
+//   · and the headline — "the same logical hold_seats is digest-identical
+//     across the MCP and HTTP bindings" — passes by comparing one row to
+//     itself. A vacuous green on the assertion the whole script exists for.
+//
+// Measured on postgres:18, 2026-08-25. The parity claim genuinely cannot be
+// made when the two bindings share a store, so this is a 2, never a 0.
+if (await sharesAStore(http.db, mcp.db)) {
+  console.log("cannot prove — the HTTP and MCP benches opened the SAME store, so I3 parity would compare a row to itself:");
+  console.log("                openDb() resolves one CHANGEOVER_PG_URL, and this proof needs each binding to write its own.");
+  console.log("  to make it provable:");
+  console.log("    unset CHANGEOVER_PG_URL   # PGlite gives each bench its own in-process cluster");
+  console.log("    bash scripts/prove_digest_parity.sh");
+  await mcp.close();
+  await http.close();
+  process.exit(2);
+}
+
 try {
   /* 1 — the same logical call, over two transports, spelled differently ---- */
 

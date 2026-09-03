@@ -356,7 +356,9 @@ A corollary for anyone writing a repeated measurement: **an intermittent failure
 
 ### What PGlite cannot do, and what you must do about it
 
-PGlite is **single-connection and in-process**. True multi-connection concurrency, lock contention and `40P01` deadlock detection are **not reproducible on it**. Docker's daemon is not running on this machine and `psql` is not installed, so there is no real multi-connection Postgres available right now.
+PGlite is **single-connection and in-process**. True multi-connection concurrency, lock contention and `40P01` deadlock detection are **not reproducible on it**.
+
+**A real Postgres now exists on this machine.** `postgres:18` on port 5433 — `export CHANGEOVER_PG_URL=postgres://postgres:changeover@localhost:5433/changeover`. Every concurrency proof in the tree has now been run against it. The exit-2 rule is unchanged for CI, which still has no database, but **an item exiting 2 while that server is up is a missed proof, not an honest one**: if your assertion can be proven there, prove it.
 
 `db.concurrent` is `false` on PGlite and it never lies about that. Any assertion whose meaning depends on two callers racing calls `requireConcurrentDb()`, which throws `CannotProve` when `CHANGEOVER_PG_URL` is unset. See §7.
 
@@ -423,6 +425,16 @@ The corollary is that a half-written proof in `scripts/` is already gating every
 The five root-commit proofs must still exit 0 when you are done: `prove_spec_first`, `prove_spec_examples`, `prove_etag_golden`, `prove_member_manifest`, `prove_no_settlement_verb`. Run `npm run check` before you return — it is `typecheck && test && proofs`, and the first two catch a broken seam in seconds where the third catches it in a stack trace.
 
 *Measured at the Gate 1 integration, 2026-08-25:* `npm run check` → tsc exit 0 · `node --test` 328 pass / 0 fail · `run_proofs.sh` PASS=19 FAIL=0 UNPROVABLE=4, exit 2. The four unprovable are `prove_lock_order`, `prove_idempotent_race`, `prove_no_fanout_concurrent` and `prove_migrations_pg` — every one of them concurrency-gated on `CHANGEOVER_PG_URL`, and every one correct to exit 2 here.
+
+*Measured at the Gate 2 integration, 2026-08-25, 31 proof scripts:*
+
+| | PGlite (CI) | `CHANGEOVER_PG_URL` → postgres:18 |
+|---|---|---|
+| `npx tsc --noEmit` | 0 | 0 |
+| `node --test` | 497 pass / 0 fail | — |
+| `run_proofs.sh` | **PASS=26 FAIL=0 UNPROVABLE=5**, exit 2 · 440 checks | **PASS=30 FAIL=0 UNPROVABLE=1**, exit 2 · 488 checks |
+
+The five unprovable on PGlite are the five concurrency scripts and all five are correct there. Under Postgres the only unprovable is `prove_digest_parity`, and it is unprovable *for a different reason* — see §12. **The Postgres run is idempotent: two consecutive full runs against the same database give the same numbers.** Before Gate 2 the first run gave seven failures and the second could not be attempted.
 
 ---
 
@@ -610,7 +622,7 @@ try {
 
 `run_proofs.sh` already distinguishes the three outcomes: it prints `skip — <name> cannot prove`, lists them, and exits `2` if any script could not prove and none failed. That is correct and intended. **A `2` is an honest result. A `0` you did not earn is not.**
 
-**Docker's daemon is not running on this machine and `psql` is not installed.** Expect `2` locally for every concurrency proof. Write the script so that it turns into a real `0` or `1` the instant a server exists, and never sooner.
+**A real Postgres is available (§3).** Expect `2` only when `CHANGEOVER_PG_URL` is unset — which is CI, and which is also the default local path. Write the script so that it turns into a real `0` or `1` the instant a server exists, and never sooner; then set the variable and check which it turned into.
 
 ---
 
@@ -727,3 +739,39 @@ It is single-connection and that is not a concession: every assertion is a prope
 ### A follow-up that is still open
 
 `packages/cli/src/bin.ts` now exists, so `packages/cli/package.json`'s `"bin": { "changeover": "./src/bin.ts" }` would link on the next `npm install` — but no agent may run one, so `node_modules/.bin/changeover` is still absent. The canonical local invocation remains `node packages/cli/src/bin.ts <cmd>`, which works today and prints `derive` and `lint`.
+
+---
+
+## 12 · The shared store, and the defect class that lives in it
+
+Added at the Gate 2 integration. **Every failure found under real Postgres at Gate 2 was a proof mis-reporting, not a boundary defect** — and three of them reported something other than what they claimed to test. That is now the class to hunt first.
+
+### The rule
+
+> **PGlite hands every `openDb()` its own fresh in-process cluster. A real Postgres does not.** Any assertion whose meaning depends on "the store contains exactly what I put in it", or on "these two handles are two different stores", is true by accident on the default path and false the moment `CHANGEOVER_PG_URL` is set.
+
+Three shapes of that mistake, all found in the tree and all fixed:
+
+| Shape | What it printed | What was true |
+|---|---|---|
+| A count over an append-only table that is deliberately never truncated | `FAIL — the access log has 6 rows and 0 carrying the token` | The property held. The parenthetical said so. The count was over every earlier script's rows. |
+| A fixture written at a fixed key, never restored | `FAIL — changeover_retention cannot detach a partition` · `changeover_agent cannot write the access log at all` | A **privilege** failure was reported for a partition the last run detached and never re-attached, and a `natural_key` the last run had already used. |
+| Two benches assumed to be two stores | `ok — the MCP store holds exactly one row` · `ok — …digest-identical across the MCP and HTTP bindings` | One store, one row, compared to itself. **The headline assertion of the whole script passed vacuously.** |
+
+The third is the dangerous one, because it is green.
+
+### What to do about it
+
+- **Own your estate.** `seedEstate` upserts what it names and leaves foreign Occasions in place — correct for a seeder, wrong for a bench that then asks a question about "the store". Call `resetEstate(db)` (`@changeover/store/migrate.ts`) at bench setup, next to `resetHoldStore(db)`. `resolve_occasions` with no filter answers with everything it has.
+- **Never reset the access log.** It is append-only and that is a property this repository asserts. Make your rows distinct with a per-run nonce in `natural_key` instead, and scope any count to the rows *your run* wrote. A leak scan, by contrast, should stay global — a leak into any row is the failure.
+- **Restore any fixture you destroy.** A proof that only passes against a database it has never seen is a one-shot, and its second run reports its own leftovers as a product defect.
+- **Ask whether two handles are two stores; do not assume it.** `prove_digest_parity.sh` holds a `pg_try_advisory_xact_lock` on one and tries for it on the other. Behavioural, driver-agnostic, and it cannot drift from the thing it answers. Where the two share a store the parity claim genuinely cannot be made, so it exits **2** — never 0.
+
+### Two real defects this uncovered
+
+- **`migrate()` was not concurrency-safe.** Four callers at once against one fresh database: one success, three `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` — every migrator read an empty ledger and every one applied `0001`. Fixed with a transaction-scoped advisory lock and a **re-read of the ledger inside the lock**; the read that happened before any lock was held is not something to act on. Eight concurrent migrators now all succeed, on a fresh database and on a migrated one. PGlite is single-connection and could never have shown this.
+- **`bootBench` documented two exhibitors as "independent stores".** True under PGlite, false under one `CHANGEOVER_PG_URL`. Two independent *sites* are not two independent *stores*, and the estate must therefore be cleared once in `bootBench` and never inside `bootExhibitor`, where the second exhibitor's reset deletes the first's Occasions out from under it.
+
+### Still open
+
+`packages/core/src/hmac.ts` remains unwritten and the seam §2 describes is unresolved: the `idempotency` table still carries no `site_epoch_id`, so shredding an epoch shreds the log and leaves the idempotency digests hashed under a key nothing names. `prove_composition.sh` asserts `keyHmac(key) === epochHmac(epoch, key)` so the two cannot silently drift, and that assertion holds — but it is a guard on a gap, not a closure of it.

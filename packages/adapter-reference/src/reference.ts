@@ -21,7 +21,7 @@ import type { Db } from "@changeover/store/db.ts";
 import { openDb } from "@changeover/store/db.ts";
 import type { Estate, OccasionSeed } from "@changeover/store/fixtures.ts";
 import { seedEstate } from "@changeover/store/fixtures.ts";
-import { migrate } from "@changeover/store/migrate.ts";
+import { migrate, resetEstate } from "@changeover/store/migrate.ts";
 import type { DurationMs, Rfc3339 } from "@changeover/schema/scalars.ts";
 import { refuse } from "@changeover/schema/refusal.ts";
 import { serverTime } from "@changeover/core/clock.ts";
@@ -111,6 +111,14 @@ export async function createReferenceAdapter(
   const owns_db = options.db === undefined;
   const db = options.db ?? (await openDb());
   if (!(options.migrated ?? false)) await migrate(db);
+
+  // If this adapter opened the store, the estate in it is nobody else's.
+  // seedEstate upserts what it names and leaves foreign Occasions alone, and
+  // resolveOccasions({}) answers with everything — so against a durable
+  // Postgres the read half was publishing another script's fixtures and being
+  // refused by schemas/occasion.schema.json for it. An attached store belongs
+  // to its caller and is never cleared here.
+  if (owns_db) await resetEstate(db);
 
   if (options.seed_published ?? true) {
     await seedEstate(db, await publishedEstate());

@@ -68,6 +68,17 @@ export interface Bench {
 export async function bench(occasions: readonly OccasionSeed[]): Promise<Bench> {
   const db = await openDb();
   await migrate(db);
+  // A shared store is not a fresh one. PGlite hands every script its own
+  // in-process database, so seeding into it is seeding into an empty world; a
+  // real Postgres at CHANGEOVER_PG_URL is ONE database that every proof script
+  // in the suite seeds into in turn, and the second one collides on ids the
+  // first left behind. Truncating here is what makes a script's fixtures its
+  // own regardless of substrate. The access log is deliberately NOT truncated
+  // — it is append-only, and a helper that quietly emptied it would be the
+  // first crack in the property this repository asserts.
+  // Found 2026-08-25: six proofs passed individually and failed in the suite
+  // the first time it ran against a real Postgres.
+  await resetHoldStore(db);
   const estate: Estate = { name: "core-002", occasions: [...occasions] };
   await seedEstate(db, estate);
   return {

@@ -17,7 +17,7 @@
 
 import type { Db } from "./db.ts";
 import { constraintName, SQLSTATE, sqlstate } from "./db.ts";
-import { migrate } from "./migrate.ts";
+import { migrate, resetHoldStore } from "./migrate.ts";
 import { HUNDRED_SEAT_HOUSE, seedEstate } from "./fixtures.ts";
 
 export interface AuditResult {
@@ -26,6 +26,20 @@ export interface AuditResult {
   /** One line per assertion that did not. Empty means the floor is intact. */
   readonly failed: readonly string[];
 }
+
+/**
+ * A nonce that makes this run's probe rows distinct from the last run's.
+ *
+ * The log's ingest uniqueness is (local_wall_date, record_source, natural_key,
+ * local_wall_offset) and the log is append-only by design: nothing here may
+ * delete a row it wrote. A fixed natural_key therefore made every assertion in
+ * `auditLogReason` and the append control in `auditGrants` a ONE-SHOT — green
+ * against the fresh database PGlite hands out, and 23505 against any real
+ * Postgres the audit had already touched today. The failure text was
+ * "changeover_agent cannot write the access log at all", which names a grant,
+ * so the second run reported a privilege defect that was its own leftover.
+ */
+const RUN = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
 
 const QUOTE = String.fromCharCode(39);
 const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXY";
@@ -49,6 +63,14 @@ export async function auditSchema(db: Db): Promise<AuditResult> {
   const bad = (m: string): void => void failed.push(m);
 
   await migrate(db);
+  // Every probe below writes at a fixed hold_id, so a second run against the
+  // same server collided on hold_pkey and reported "unexpected: duplicate key"
+  // after a single assertion. PGlite hands out a fresh database per open and
+  // never showed it; a real Postgres is durable and shows it on run two.
+  // The access log is deliberately NOT reset — it is append-only, and a helper
+  // that quietly emptied it would be the first crack in the property this
+  // repository asserts. Its probe rows are made distinct by RUN instead.
+  await resetHoldStore(db);
   await seedEstate(db, HUNDRED_SEAT_HOUSE);
 
   await insertHold(db, holdId("2"), OCCASION.cluster);
@@ -333,6 +355,16 @@ async function auditGrants(db: Db, ok: Say, bad: Say): Promise<void> {
       { role: "changeover_retention" },
     );
     ok("changeover_retention CAN detach a log partition — erasure without an UPDATE or a DELETE (A3)");
+    // Put it back. The assertion above is the capability, not the absence, and
+    // leaving the default partition detached made this audit a ONE-SHOT: the
+    // next run got 42P01 "is not a partition of" and reported it as
+    // "changeover_retention cannot detach a partition" — a privilege failure
+    // that was really a missing fixture, pointing the reader at the grants.
+    // The comment on todayLocalWallDate() names this exact rot; restoring the
+    // partition is what stops the audit from committing it.
+    await db.exec(
+      "alter table changeover_log.access_log attach partition changeover_log.access_log_default default",
+    );
   } catch (err) {
     bad("changeover_retention cannot detach a partition: " + sqlstate(err) + " " + message(err));
   }
@@ -423,7 +455,7 @@ function logRow(outcome: string, refusalCode: string | null, naturalKey: string)
     refusalCode,
     "epoch_1",
     "boundary",
-    naturalKey,
+    naturalKey + "-" + RUN,
   ];
 }
 

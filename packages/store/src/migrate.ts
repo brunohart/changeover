@@ -91,6 +91,35 @@ export class MigrationDrift extends Error {
   }
 }
 
+/**
+ * The advisory lock every DDL-writing path here takes first.
+ *
+ * Measured on postgres:18, 2026-08-25: four callers running `migrate()` at once
+ * against one fresh database gave ONE success and THREE crashes with
+ * `duplicate key value violates unique constraint "pg_type_typname_nsp_index"`
+ * — two backends inside `create type` for the same name. The read of the ledger
+ * and the decision to apply are separate statements, so every migrator read an
+ * empty ledger and every one of them applied 0001.
+ *
+ * PGlite is single-connection and in-process, so it serialises this by
+ * construction and can never show it. Two app instances booting together can,
+ * and the demo's own two-exhibitor boot did.
+ *
+ * The lock is transaction-scoped deliberately: `pg_advisory_lock` is
+ * session-scoped, and under a node-postgres POOL the unlock can land on a
+ * different backend than the lock, leaking it until that connection is
+ * recycled. An xact lock is released by the commit that ends the work.
+ */
+const MIGRATION_LOCK = "4021971103";
+
+/** Run `fn` on one connection, holding the migration lock for its duration. */
+async function withMigrationLock<T>(db: Db, fn: (tx: Queryable) => Promise<T>): Promise<T> {
+  return await db.transaction(async (tx) => {
+    await tx.query("select pg_advisory_xact_lock($1::bigint)", [MIGRATION_LOCK]);
+    return await fn(tx);
+  });
+}
+
 const LEDGER_DDL = `
 create table if not exists schema_migration (
   version    text primary key,
@@ -134,7 +163,7 @@ export async function migrate(db: Db, options: MigrateOptions = {}): Promise<Mig
   const all = await loadMigrations(options.dir);
   const wanted = all.filter((m) => withRoles || !m.version.includes("roles"));
 
-  await db.exec(LEDGER_DDL);
+  await withMigrationLock(db, (tx) => tx.exec(LEDGER_DDL));
   const ledger = await db.query<{ version: string; checksum: string }>(
     "select version, checksum from schema_migration",
   );
@@ -150,14 +179,30 @@ export async function migrate(db: Db, options: MigrateOptions = {}): Promise<Mig
       alreadyApplied.push(m.version);
       continue;
     }
-    await db.transaction(async (tx) => {
+    // The ledger is re-read INSIDE the lock. The read above happened before any
+    // lock was held, so under two concurrent migrators both saw this version
+    // missing; whoever waits here must look again rather than act on what it
+    // learned outside. Without the re-read the loser applies the same DDL a
+    // second time and dies in `create type`.
+    const mine = await withMigrationLock(db, async (tx) => {
+      const again = await tx.query<{ checksum: string }>(
+        "select checksum from schema_migration where version = $1",
+        [m.version],
+      );
+      const row = again.rows[0];
+      if (row !== undefined) {
+        if (row.checksum !== m.checksum) throw new MigrationDrift(m.version, row.checksum, m.checksum);
+        return false;
+      }
       await tx.exec(m.sql);
       await tx.query("insert into schema_migration (version, checksum, applied_at) values ($1, $2, clock_timestamp())", [
         m.version,
         m.checksum,
       ]);
+      return true;
     });
-    applied.push(m.version);
+    if (mine) applied.push(m.version);
+    else alreadyApplied.push(m.version);
   }
 
   const logPartitions = (await hasAccessLog(db))
@@ -212,7 +257,11 @@ export async function ensureLogPartitions(
       continue;
     }
     try {
-      await db.transaction(async (tx) => {
+      // Locked for the same reason the migrations are: two boots reaching this
+      // month together both see it absent, and the loser's CREATE TABLE would
+      // be swallowed into `blocked` — a partition reported as held open by real
+      // rows when it was only lost a race.
+      await withMigrationLock(db, async (tx) => {
         await tx.exec(
           `create table changeover_log.${name} partition of changeover_log.access_log ` +
             `for values from ('${iso(start)}') to ('${iso(end)}')` +
@@ -247,6 +296,30 @@ function iso(d: Date): string {
  * that quietly emptied it would be the first crack in the property this
  * repository is asserting.
  */
+/**
+ * Empty the estate, so that a bench about to seed one owns every Occasion in
+ * the store.
+ *
+ * `seedEstate` upserts the Occasions it names and leaves every other row alone,
+ * which is right for a seeder and wrong for a bench that then asks a question
+ * about "the store". `resolve_occasions` with no filter answers with everything
+ * it has: against the fresh database PGlite hands out that is exactly the seeded
+ * estate, and against a durable Postgres it is also whatever the last script
+ * left. Measured 2026-08-25 — `occ_a` and `occ_b`, written by
+ * prove_access_log.sh on the same origin with a PARTIAL document, came back
+ * through both bindings and were refused by the Occasion schema for missing
+ * every required member. Two proofs reported a projection defect that was
+ * another script's fixture.
+ *
+ * `cascade` also empties the hold store: `hold.occasion_id` and
+ * `occasion_seat.occasion_id` both reference `occasion`, and a Hold is a claim
+ * on a seat at an Occasion, so it cannot outlive one. The access log is NOT
+ * touched, for the reason `resetHoldStore` gives.
+ */
+export async function resetEstate(db: Queryable): Promise<void> {
+  await db.exec("truncate table occasion, occasion_seat restart identity cascade");
+}
+
 export async function resetHoldStore(db: Queryable): Promise<void> {
   await db.exec("truncate table hold, hold_seat, hold_cluster, hold_slot, idempotency restart identity cascade");
 }
