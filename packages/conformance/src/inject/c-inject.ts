@@ -58,7 +58,7 @@ import { REFUSAL_STATUS, isRefusal, refuse } from "@changeover/schema/refusal.ts
 import type { Db } from "@changeover/store/db.ts";
 import { CannotProve } from "@changeover/store/db.ts";
 import type { OccasionSeed } from "@changeover/store/fixtures.ts";
-import { availableSeatIds, occasionSeedFromDocument, seedEstate } from "@changeover/store/fixtures.ts";
+import { availableSeatIds, occasionSeedFromDocument, seedEstate, seedInFuture } from "@changeover/store/fixtures.ts";
 import { migrate } from "@changeover/store/migrate.ts";
 
 import type { Check } from "./poison.ts";
@@ -463,7 +463,9 @@ export async function strictBoundarySurvivesPoison(
   db: Db,
   cases: readonly GoldenCase[],
 ): Promise<Check[]> {
-  const seeds = cases.map((c) => occasionSeedFromDocument(c.poisoned, { cluster: GOLDEN_CLUSTER }));
+  // The rows move forward to a week the clock has not reached; the documents,
+  // and so the etags, do not. See seedInFuture.
+  const seeds = cases.map((c) => seedInFuture(occasionSeedFromDocument(c.poisoned, { cluster: GOLDEN_CLUSTER })));
   const ids = seeds.map((s) => s.occasion_id);
 
   await migrate(db);

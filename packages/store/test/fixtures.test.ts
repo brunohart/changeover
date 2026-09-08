@@ -23,6 +23,7 @@ import {
   occasionSeedFromDocument,
   seatGrid,
   seedEstate,
+  seedInFuture,
 } from "@changeover/store/fixtures.ts";
 
 const GOLDEN_DIR = join(import.meta.dirname, "..", "..", "..", "fixtures", "golden");
@@ -136,4 +137,35 @@ test("a golden document seeds itself, document and all", async () => {
     [doc["occasion_id"], "available"],
   );
   assert.equal(Number(seats.rows[0]?.n), doc["availability"].seats_available);
+});
+
+test("seedInFuture moves the row by whole weeks and leaves the document alone", async () => {
+  const doc = JSON.parse(await readFile(join(GOLDEN_DIR, "occasion-embassy-sat-1900.json"), "utf8"));
+  const seed = occasionSeedFromDocument(doc, { cluster: "c" });
+  assert.equal(seed.sales_cutoff_at, "2026-08-29T19:15:00+12:00");
+
+  // A clock a week and a bit past the cutoff: two weeks forward, same Saturday,
+  // same wall clock, same offset, and the cutoff now at least a day ahead.
+  const now = new Date("2026-09-07T10:00:00+12:00");
+  const moved = seedInFuture(seed, now);
+  assert.equal(moved.starts_at, "2026-09-12T19:00:00+12:00");
+  assert.equal(moved.local_wall, "2026-09-12T19:00");
+  assert.equal(moved.local_wall_offset, seed.local_wall_offset);
+  assert.equal(moved.sales_cutoff_at, "2026-09-12T19:15:00+12:00");
+  assert.ok(Date.parse(moved.sales_cutoff_at!) - now.getTime() >= 24 * 60 * 60 * 1000);
+  assert.equal(new Date(moved.starts_at).getUTCDay(), new Date(seed.starts_at).getUTCDay());
+  assert.strictEqual(moved.document, seed.document, "the document is the same object, not a shifted copy");
+  assert.equal(moved.etag, seed.etag);
+
+  // Already far enough ahead: nothing moves, and it is the same object.
+  assert.strictEqual(seedInFuture(seed, new Date("2026-08-01T00:00:00+12:00")), seed);
+
+  // Inside the margin but before the cutoff still moves, one week.
+  const close = seedInFuture(seed, new Date("2026-08-29T10:00:00+12:00"));
+  assert.equal(close.sales_cutoff_at, "2026-09-05T19:15:00+12:00");
+
+  // No cutoff: measured by starts_at, and the cutoff stays null.
+  const open = seedInFuture({ ...seed, sales_cutoff_at: null }, now);
+  assert.equal(open.starts_at, "2026-09-12T19:00:00+12:00");
+  assert.equal(open.sales_cutoff_at, null);
 });
