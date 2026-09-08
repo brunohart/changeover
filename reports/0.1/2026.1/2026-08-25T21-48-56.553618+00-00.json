@@ -1,0 +1,2343 @@
+{
+  "report_schema": "0.1",
+  "spec_version": "0.1",
+  "register_version": "2026.1",
+  "profile": "1",
+  "hold_basis": "system_of_record",
+  "floor_basis": "owned_store",
+  "implementation": {
+    "name": "changeover-reference",
+    "version": "0.1.0"
+  },
+  "bindings": [
+    "http",
+    "in_process"
+  ],
+  "binding_coverage": [
+    {
+      "binding": "http",
+      "exercised": true,
+      "classes": [
+        "C-FLOOR",
+        "C-REVOKE",
+        "C-SUBST",
+        "C-SEATMAP",
+        "C-CLAIM",
+        "C-ORIGIN",
+        "C-AUTHZ",
+        "C-ABSENCE",
+        "C-REFUSE",
+        "C-CLOCK",
+        "C-LOG",
+        "C-USAGE",
+        "C-PROFILE0"
+      ]
+    },
+    {
+      "binding": "in_process",
+      "exercised": true,
+      "classes": [
+        "C-ATOMIC",
+        "C-BUDGET",
+        "C-FANOUT",
+        "C-IDEMPOTENT",
+        "C-RELEASE",
+        "C-ORPHAN",
+        "C-PII-INGEST",
+        "C-INJECT"
+      ]
+    }
+  ],
+  "run_at": "2026-08-25T21:48:56.553618+00:00",
+  "trials": 471,
+  "selection": {
+    "only": null
+  },
+  "classes": [
+    {
+      "class": "C-SCHEMA",
+      "spec_row": "Every emitted document validates; unknown members rejected on write, ignored on read.",
+      "status": "unprovable",
+      "reason": "no module in this repository runs C-SCHEMA: the harness has nothing to import, so the class was not executed. A module at packages/conformance/src/classes/c-schema.ts exporting the contract in packages/conformance/src/classes/_contract.ts would put it in this report",
+      "binding": null,
+      "clauses": [],
+      "missing_path": "packages/conformance/src/classes/c-schema.ts"
+    },
+    {
+      "class": "C-CAPABILITY",
+      "spec_row": "The document validates, is served from a venue-authorised origin, and no limit observed at runtime is absent from it.",
+      "status": "unprovable",
+      "reason": "no module in this repository runs C-CAPABILITY: the harness has nothing to import, so the class was not executed. A module at packages/conformance/src/classes/c-capability.ts exporting the contract in packages/conformance/src/classes/_contract.ts would put it in this report",
+      "binding": null,
+      "clauses": [],
+      "missing_path": "packages/conformance/src/classes/c-capability.ts"
+    },
+    {
+      "class": "C-ETAG",
+      "spec_row": "Two independent implementations produce byte-identical JCS bytes and digest for a pinned golden fixture.",
+      "status": "unprovable",
+      "reason": "no module in this repository runs C-ETAG: the harness has nothing to import, so the class was not executed. A module at packages/conformance/src/classes/c-etag.ts exporting the contract in packages/conformance/src/classes/_contract.ts would put it in this report",
+      "binding": null,
+      "clauses": [],
+      "missing_path": "packages/conformance/src/classes/c-etag.ts"
+    },
+    {
+      "class": "C-FLOOR",
+      "spec_row": "owned_store hard-fails at one violation; measured_warranty reports floor_violations as a rate against a published threshold and does not hard-fail below it. floor_ms never increases post-grant; expires_at >= floor_deadline; operator_overrides reported separately.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-floor.ts",
+      "duration_ms": 836.8309589999999,
+      "clauses": [
+        {
+          "clause": "C-FLOOR.published",
+          "status": "pass",
+          "note": "floor_basis owned_store, 24 observations, min retention 300000ms less 30000ms margin — warranting 270000ms"
+        },
+        {
+          "clause": "C-FLOOR.ceiling_warranted",
+          "status": "pass",
+          "note": "the ceiling this Server advertises (policy_max_floor_ms 270000ms) is inside what its own evidence warrants (270000ms) — a Server MUST NOT grant a floor it has not measured, and the ceiling is the largest floor it offers to grant"
+        },
+        {
+          "clause": "C-FLOOR.ceiling_control",
+          "status": "pass",
+          "note": "and the unclamped default ceiling (300000ms) is NOT warranted by this evidence, so the clause above is a measurement rather than a constant — a site publishing the default unchanged fails it"
+        },
+        {
+          "clause": "C-FLOOR.granted_warranted",
+          "status": "pass",
+          "note": "5 floors granted across the published range (1000→1000, 60000→60000, 120000→120000, 270000→270000, 330000→270000), every one of them inside the evidence"
+        },
+        {
+          "clause": "C-FLOOR.clamped_not_refused",
+          "status": "pass",
+          "note": "a request above the ceiling is granted AT the ceiling (330000 → 270000), which is the published limit doing its job rather than a refusal an agent cannot act on"
+        },
+        {
+          "clause": "C-FLOOR.floor_never_increases",
+          "status": "pass",
+          "note": "floor_ms observed 8 times across five reads, an idempotent replay and a hand-off, never above the granted 120000ms (120000)"
+        },
+        {
+          "clause": "C-FLOOR.floor_replay_identical",
+          "status": "pass",
+          "note": "and the replay carries the identical floor member rather than a freshly computed one, which is what makes a retry safe to trust"
+        },
+        {
+          "clause": "C-FLOOR.floor_store",
+          "status": "pass",
+          "note": "and the store holds the same number, so the constancy is the Hold's and not the projection's"
+        },
+        {
+          "clause": "C-FLOOR.floor_ms_ungrantable",
+          "status": "pass",
+          "note": "the agent role cannot write floor_ms at all (42501): the column is absent from its UPDATE grant, so T1's immovability does not depend on no code trying"
+        },
+        {
+          "clause": "C-FLOOR.floor_derived_enforced",
+          "status": "pass",
+          "note": "and moving floor_deadline away from granted_at + floor_ms is refused by the store even as its owner (23514 hold_floor_derived)"
+        },
+        {
+          "clause": "C-FLOOR.no_extend_verb",
+          "status": "pass",
+          "note": "and §6.3 declares 9 routes of which none extends a Hold — there is no extend verb for a floor to grow through, which is the third independent reason this holds"
+        },
+        {
+          "clause": "C-FLOOR.expiry_check_enforced",
+          "status": "pass",
+          "note": "and an UPDATE that would put expires_at one second inside the floor is refused by the store (23514 hold_expiry_not_before_floor), so T2 is a constraint and not a convention"
+        },
+        {
+          "clause": "C-FLOOR.owned_store_clean",
+          "status": "pass",
+          "note": "this Server publishes floor_basis owned_store and 0 of its Holds stopped holding inside their floor, so the class passes on the evidence rather than by default"
+        },
+        {
+          "clause": "C-FLOOR.owned_store_hard_fails",
+          "status": "pass",
+          "note": "one Hold whose seats stopped holding 120s inside its floor is enough: under owned_store there is no rate for a single violation to be small in (1 counted)"
+        },
+        {
+          "clause": "C-FLOOR.override_not_a_violation",
+          "status": "pass",
+          "note": "an Operator Override took a Hold's seats inside its floor and floor_violations did not move (1 → 1) — T1a counts it separately and it does not fail this class"
+        },
+        {
+          "clause": "C-FLOOR.override_counted",
+          "status": "pass",
+          "note": "while operator_overrides did move, which is the whole point of keeping the two numbers apart: an honest exhibitor withdrawing seats must not read as non-conforming"
+        },
+        {
+          "clause": "C-FLOOR.expiry_not_before_floor",
+          "status": "pass",
+          "note": "across every one of this principal's 2 Holds in the store, 1 of them handed off, not one carries expires_at below floor_deadline"
+        },
+        {
+          "clause": "C-FLOOR.measured_warranty_rate",
+          "status": "unprovable",
+          "note": "§7 and T1a both require measured_warranty to report floor_violations as a rate \"against a published threshold\", and no member of the eight frozen document schemas publishes one: capability.schema.json carries floor_evidence.violations (a count from the measurement window, not a tolerance) and hold-policy.schema.json carries abandonment_floor_penalty_bp (X5's, about an agent's abandonment rate, not the Server's floor). With no publishable threshold there is nothing for a rate to be below, so the branch cannot be decided by any harness — including against a site that published measured_warranty, which this one does not"
+        }
+      ],
+      "reason": "C-FLOOR.measured_warranty_rate: §7 and T1a both require measured_warranty to report floor_violations as a rate \"against a published threshold\", and no member of the eight frozen document schemas publishes one: capability.schema.json carries floor_evidence.violations (a count from the measurement window, not a tolerance) and hold-policy.schema.json carries abandonment_floor_penalty_bp (X5's, about an agent's abandonment rate, not the Server's floor). With no publishable threshold there is nothing for a rate to be below, so the branch cannot be decided by any harness — including against a site that published measured_warranty, which this one does not"
+    },
+    {
+      "class": "C-ATOMIC",
+      "spec_row": "200 concurrent holds on a 100-seat house: exactly 100 succeed, 100 typed 409, zero oversell, zero partial holds, zero 40P01.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/atomic/assertions.ts",
+      "duration_ms": 456.9737499999974,
+      "clauses": [
+        {
+          "clause": "C-ATOMIC.3",
+          "status": "pass",
+          "note": ".3 — seat A:1 is claimed: the customer completed at the exhibitor's own checkout"
+        },
+        {
+          "clause": "C-ATOMIC.3",
+          "status": "pass",
+          "note": ".3 — a hold naming the claimed seat from the same listing returns 409 seat_contended: `claimed` is in the uniqueness predicate, so a sold seat never becomes re-holdable"
+        },
+        {
+          "clause": "C-ATOMIC.3",
+          "status": "pass",
+          "note": ".3 — a hold naming the claimed seat from the sibling listing of the same screening returns 409 seat_contended: `claimed` is in the uniqueness predicate, so a sold seat never becomes re-holdable"
+        },
+        {
+          "clause": "C-ATOMIC.3",
+          "status": "pass",
+          "note": ".3 — and wrote no row: 1 hold rows and 1 seat rows before the two refusals, the same after"
+        },
+        {
+          "clause": "C-ATOMIC.3",
+          "status": "pass",
+          "note": ".3 — seat A:1 is still occupied exactly once, by the claim"
+        },
+        {
+          "clause": "C-ATOMIC.4",
+          "status": "pass",
+          "note": ".4 — [A:1, ZZ:999] is refused 400 unknown_seat, not held in part"
+        },
+        {
+          "clause": "C-ATOMIC.4",
+          "status": "pass",
+          "note": ".4 — and wrote ZERO rows: an unvalidated seat id never becomes a permanent row nothing will reap"
+        },
+        {
+          "clause": "C-ATOMIC.4",
+          "status": "pass",
+          "note": ".4 — [A:1 free, A:2 held] is refused 409 seat_contended — a refusal is thrown, never mixed with rows, and first failure wins"
+        },
+        {
+          "clause": "C-ATOMIC.4",
+          "status": "pass",
+          "note": ".4 — and wrote ZERO rows: still 1 hold row and 1 seat row, so the hold row the insert needed in order to have anything to hang a seat on was rolled back with it"
+        },
+        {
+          "clause": "C-ATOMIC.4",
+          "status": "pass",
+          "note": ".4 — seat A:1 is still free: there is no such thing as a partial hold"
+        },
+        {
+          "clause": "C-ATOMIC.4",
+          "status": "pass",
+          "note": ".4 — the incumbent Hold is untouched and still carries exactly [A:2]"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — the calls genuinely overlapped: 200 contenders spent 17363ms in flight across 131ms of wall clock, an overlap of 132.5× (serial is 1.0)"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — the race is on the SERVER: pg_stat_activity showed up to 32 of this harness's backends inside a transaction at one instant, against a pool of 32"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — 200 concurrent holds on a 100-seat house: exactly 100 succeeded"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — the other 100 are typed 409 seat_contended, every one of them, and not one is an untyped failure"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — zero unclassified faults: every caller got a Hold or a refusal from the closed taxonomy"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — zero 40P01: the seat locks are taken in one total order, so contenders wait rather than cycle"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — zero oversell, read from the store: no (showtime_id, seat_id) is carried by two occupying rows"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — and zero oversell of the PHYSICAL auditorium, counted without consulting showtime_id at all: no seat of the one screening is held by two Holds across its two listings"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — zero partial holds: no Hold carries some of its granted seats and not the rest"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — the store agrees with the responses: 100 hold rows and 100 occupying seat rows"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — every one of the 100 seats is held exactly once"
+        },
+        {
+          "clause": "C-ATOMIC.1",
+          "status": "pass",
+          "note": ".1 — the profile is what it says it is: zero hold_slot and zero hold_cluster rows, so no ceiling and no fan-out index could have refused a caller in place of the seat index"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — 25 fixture Holds 2 seats wide cover 50 of 100 seats; the other 50 are free and have no row to lock"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — the calls genuinely overlapped: 200 contenders spent 12929ms in flight across 110ms of wall clock, an overlap of 117.5× (serial is 1.0)"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — the race is on the SERVER: pg_stat_activity showed up to 32 of this harness's backends inside a transaction at one instant, against a pool of 32"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — zero 40P01 across an expiry boundary: 200 single-seat contenders raced 25 reapable multi-seat Holds and none deadlocked. L1 locks the FULL requested set irrespective of whether a row exists, so the free seats and the doomed ones are one sequence"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — zero unclassified faults: every contender ended in a grant or a typed refusal"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — all 200 contenders were answered (96 grants, 104×seat_contended)"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — zero oversell across the boundary, by (showtime_id, seat_id) and by physical seat alike: a reaped seat was re-held once, never twice"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — zero partial holds: the reap ran by HOLD and not by seat, so no fixture Hold lost one seat and kept the other"
+        },
+        {
+          "clause": "C-ATOMIC.2",
+          "status": "pass",
+          "note": ".2 — the store carries 96 occupying rows for a 100-seat house, which is the ceiling the physical auditorium has"
+        }
+      ],
+      "trials": 400
+    },
+    {
+      "class": "C-BUDGET",
+      "spec_row": "max+1 concurrent holds at production defaults → exactly max succeed. Budgets bind in-transaction.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/budget/c-budget.ts",
+      "duration_ms": 363.9230419999949,
+      "clauses": [
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · 3 sequential holds at the published max_live_holds_per_showtime=2 left exactly 2 live"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · the (max+1)th is 429 hold_budget_exhausted naming limit 2 — the caller is told the number, not \"an invalid request\""
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · window_ms 0 tells an Agent with no eyes that this is a concurrency ceiling and not a rate"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · this principal carries exactly 2 holds, 2 slots and 2 seat rows — the refusal wrote nothing"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · exactly 6 holds were granted at this origin in the trailing hour, at a published max_holds_per_site_per_hour=6"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · the (max+1)th is 429 hold_budget_exhausted naming limit 6"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · window_ms 3600000 distinguishes the rate from every concurrency ceiling that shares its refusal code"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · every earlier hold had been RELEASED and the (max+1)th was still refused — releasing does not buy another, so this is a rate and not a concurrency ceiling wearing its name"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · on a 400-seat house min(6, 500bp × 400 / 10000 = 20) is the ABSOLUTE half, 6"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · a principal holds 6 seats on one showtime and no more"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · the next seat is 429 seat_budget_exhausted naming limit 6"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · on a 40-seat house the FRACTION is the binding half of the per-principal min: 500bp × 40 / 10000 = 2, below the absolute 6"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · 3 seats at once is 429 seat_budget_exhausted naming limit 2 — one credential cannot take the archival print"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3/X4 · 2 seats is refused naming limit 1 — at 500bp per principal against 0.02 per platform, the PLATFORM fraction is the tighter number on a small house and it is the one that refuses the customer"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · min(per-principal 2, per-platform 1) = 1 seat is granted, the next one is refused, and the principal holds exactly 1"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · this principal carries exactly one hold row — every refusal above wrote nothing"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3 · a second principal asking for 6 more is 429 seat_budget_exhausted naming limit 8 = 0.02 × 400"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3 · the platform reaches exactly 8 seats on this showtime — 2% of the house"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3 · a THIRD principal is refused for the platform's total, not its own — the blast radius of one misbehaving platform is bounded"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "§2.5 · 7 ceilings were observed being enforced and every one is a published member: max_live_holds_per_showtime, max_holds_per_site_per_hour, max_live_holds_per_cluster, max_live_seats_per_showtime, max_held_seat_fraction_bp, max_held_fraction_per_showtime, max_live_holds_per_site"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · 3 CONCURRENT holds at max_live_holds_per_showtime=2 left exactly 2 live"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · the loser got a typed 429, not a fault — the constraint answered it, and a 23505 became the code the caller is owed"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · zero 40P01 — the budget scopes are locked in one byte order, so concurrent grants wait rather than cycle"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · 7 SIMULTANEOUS holds on 7 different showtimes yielded exactly 6 — the hourly rate is a lock, not a read"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · every racer ended as a grant or a typed refusal, none as a fault"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X1 · the losing racer is still told the window, so it can back off by an hour rather than by a guess"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · two SIMULTANEOUS 6-seat holds left the principal holding exactly 6 seats — both counted zero and only one committed"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X4 · exactly one grant and one 429 seat_budget_exhausted"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3/X4 · two SIMULTANEOUS 1-seat holds on a 40-seat house left 1 seat held, at an effective ceiling of min(2, 1) = 1"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3/X4 · neither racer faulted on the small house"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3 · three principals of ONE platform asking for 4 seats simultaneously left 8 held, at a platform ceiling of 8"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3 · exactly 2 of the three simultaneous principals were granted and none faulted"
+        },
+        {
+          "clause": "C-BUDGET",
+          "status": "pass",
+          "note": "X3 · zero 40P01 across three principals sharing two platform scopes and no principal scope"
+        }
+      ],
+      "trials": 20
+    },
+    {
+      "class": "C-FANOUT",
+      "spec_row": "Two concurrent same-cluster holds for one principal → exactly one; two principals on one platform → both.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/budget/c-fanout.ts",
+      "duration_ms": 96.3214999999982,
+      "clauses": [
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · at the published max_live_holds_per_cluster=1, one principal holds exactly 1 Occasion of the cluster and the second is 429 cluster_fanout"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · the refusal names limit 1 — the caller is told the published number rather than left to infer it"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · the refusal names the conflicting hold and the cluster, so release_conflicting_hold is a remediation the caller can actually perform"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · this principal carries exactly one hold row — the refused grant did not commit"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X0 · two DIFFERENT customers of one agent platform both hold inside the same cluster — the ceiling is per customer session, not per platform"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X0 · each principal carries 1 live hold in the cluster and one row of its own — one Wellington household cannot lock out every other customer of that platform"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · a Hold that is no longer occupying stops counting against the cluster — Friday night for the couple and the Sunday matinee for the grandparents is a normal transaction, not fan-out"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "§2.5 · the count reads derived state and the policy publishing that is the same document these ceilings are read from"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · two SIMULTANEOUS same-cluster holds for one principal are exactly 1 grant and one 429 cluster_fanout"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · exactly 1 hold row of this principal survived the race"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X2 · the loser received cluster_fanout and not a raw 23505 — the index did the work and the boundary translated it"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X0 · two DIFFERENT principals hold in one cluster SIMULTANEOUSLY — the cluster lock is scoped to the customer session and two of them do not collide"
+        },
+        {
+          "clause": "C-FANOUT",
+          "status": "pass",
+          "note": "X0 · neither principal faulted or deadlocked against the other"
+        }
+      ],
+      "trials": 6
+    },
+    {
+      "class": "C-IDEMPOTENT",
+      "spec_row": "Replays carry identical identity and floor members with freshly projected time members; a different digest refuses and does not act.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/lifecycle/c-idempotent.ts",
+      "duration_ms": 3309.689792,
+      "clauses": [
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "the first call under a fresh key executed and stored its record"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I8 — the same key and digest replays without the verb running at all: no guard, no lock, no reap"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I4 — while live, all five of hold_id, seats, granted_at, floor_ms, floor_deadline replay byte-identical"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I4 — the live replay re-projects state (live) and carries a server_time later than the grant's"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I8 — idempotency is evaluated BEFORE state guards: the expired Hold replays rather than refusing hold_not_live"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I4 — after the floor ran out, all five of hold_id, seats, granted_at, floor_ms, floor_deadline replay byte-identical"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I4 — and the replayed state is freshly projected as expired: the cached document would have said live"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I4 — expires_at is re-read (unmoved, because there is no extend verb) while server_time is not the stored one"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I5 — the same key under a different digest is refused idempotency_key_reused"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I5 — verified in the store: the refused request wrote zero hold_seat rows. No action taken means no rows."
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I5 — and those seats were still free to another caller, which is what 'no action taken' means to a customer"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "the gate-returning call reported input_required rather than an execution"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I7 — verified in the store: an input_required call recorded no idempotency entry at all"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I7 — the same key is accepted on the gate-satisfying retry, so a human gate does not cost the Agent its key"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "the hand-off itself minted a claim_url, once, on the response that delivers it"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I9 — after claim_expires_at the hand_off replay reports the claim spent"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I9 — and it yields NO claim_url: the credential is spent and a replay must not re-emit it (CL5)"
+        },
+        {
+          "clause": "C-IDEMPOTENT",
+          "status": "pass",
+          "note": "I9 — the replay still answers about the right Hold, with current state, which is the point of the departure"
+        }
+      ]
+    },
+    {
+      "class": "C-RELEASE",
+      "spec_row": "Total and idempotent in every state except handed_off, where it returns 409 handoff_consumed and does not free the seat; seats re-holdable within a measured bound.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/lifecycle/c-release.ts",
+      "duration_ms": 1579.843667,
+      "clauses": [
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — releasing a live Hold answers 204, transitions live → released and frees both seats"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "the seat rows were MARKED, not deleted — 2 rows survive, 0 occupy — and the budget slot is gone"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — the second release of the same Hold is 204 with 0 seats freed: idempotent, not merely tolerated"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — releasing an expired Hold is 204, frees its seats, and leaves it expired rather than making it released"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — releasing it a second time is 204 with nothing left to free"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R1 — release_hold on a handed_off Hold is refused 409 handoff_consumed, the verb's only refusal"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R1 — and the seats did NOT come back: the refusal is a refusal, not a release wearing a 409"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R1 — a third party still cannot take those seats, which is what 'did not free the seat' means to a customer"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "the claim was confirmed, so the Hold is now claimed — the terminal state that keeps its seat"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — releasing a claimed Hold is 204 and frees nothing: claimed occupies its seat for the life of the screening"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "the claimed Hold still occupies both seats after a release that answered 204"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — releasing a revoked Hold is 204 and leaves it revoked: the operator's record is not overwritten by cleanup"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "R2 — the verb answered 204 in all five of live, released, expired, claimed and revoked, and refused in none"
+        },
+        {
+          "clause": "C-RELEASE",
+          "status": "pass",
+          "note": "seats re-holdable within a MEASURED bound: 20 trials reported as p50/p95/max rather than as an adjective"
+        }
+      ]
+    },
+    {
+      "class": "C-ORPHAN",
+      "spec_row": "With the sweeper disabled and the client SIGKILLed, seats and budgets return via the next contending transaction.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/lifecycle/c-orphan.ts",
+      "duration_ms": 47152.037458000006,
+      "clauses": [
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the store is node-postgres and reports concurrent=true"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the killed-to-be client left 2 occupying hold_seat rows in the store"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the client is gone: pid 91528 no longer exists, so nothing runs on its behalf"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "T1 — inside the floor the dead client's seats are still held: a contender is refused seat_contended"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the store's own clock now reports the orphan past expires_at"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "call count — this process issued 0 statements that could free a seat, slot or cluster row across the 1200ms window"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "pid check — every SIGKILLed client pid is gone (ESRCH), so no process is sweeping on its behalf"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "source scan — no module under packages/*/src registers a recurring timer, so there is no sweeper to switch off (the process's own active handles were Timeout, which is node-postgres's pool and not a reap)"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "backend census — pg_stat_activity was read and NO backend was executing a statement that frees occupancy; this harness held the only connections"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the store itself — 6 polls across 1200ms of an EXPIRED Hold and its occupancy never moved: nothing, anywhere, swept it"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "exactly one of 4 concurrent contenders reclaimed the orphan's seat and was granted it"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the other 3 were refused seat_contended, not a fault and not a deadlock"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the two-seat Hold contended on ONE seat left ZERO rows: the reap is by hold, never by seat"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the orphan's OTHER seat was free to the next caller too, having come back with the first"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the two clients filled max_live_holds_per_showtime: 2 hold_slot rows, the published ceiling"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "while the clients live, a grant for seats NOBODY contended is refused hold_budget_exhausted"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "both budget-holding clients are gone: pids 91535 and 91536"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "across 6 polls of the window the expired Hold's hold_slot row did not move: nothing swept the budget"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the same grant now succeeds — the budget returned through the contending transaction, not through time"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "both orphaned hold_slot rows are gone and the reclaiming Hold holds the one slot in their place"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the client's Hold occupies a hold_cluster row for cl_orph_ot7mt974xgje43"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "while the client lives, a second Occasion in the same cluster is refused cluster_fanout"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "across the window the expired Hold's hold_cluster row did not move either"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "the contending grant in the same cluster reaped the orphan's hold_cluster row and took its place"
+        },
+        {
+          "clause": "C-ORPHAN",
+          "status": "pass",
+          "note": "orphan reclaim latency measured over 12 trials and reported as p50/p95/max"
+        }
+      ]
+    },
+    {
+      "class": "C-REVOKE",
+      "spec_row": "An Override transitions to revoked, records a reason, refuses agent verbs 409 hold_revoked, and increments operator_overrides without failing C-FLOOR.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-revoke.ts",
+      "duration_ms": 181.301958,
+      "clauses": [
+        {
+          "clause": "C-REVOKE.fixture",
+          "status": "pass",
+          "note": "hold_KVEXFB2D2EK21RR0FS38VCBQX32CNZ0X is live over two seats at occ_conf_main"
+        },
+        {
+          "clause": "C-REVOKE.override_status",
+          "status": "pass",
+          "note": "the operator's Override is accepted at the operator surface"
+        },
+        {
+          "clause": "C-REVOKE.override_state",
+          "status": "pass",
+          "note": "and it answers with the state it produced, which §4.9 gives as live → revoked"
+        },
+        {
+          "clause": "C-REVOKE.transitions_in_store",
+          "status": "pass",
+          "note": "and the store carries revoked_at, so the transition is a fact about the Hold rather than a member of a response (2026-08-25 21:48:00.268499+00)"
+        },
+        {
+          "clause": "C-REVOKE.records_reason",
+          "status": "pass",
+          "note": "with the reason recorded beside it — an override with no reason is indistinguishable from a bug in the exhibitor's console"
+        },
+        {
+          "clause": "C-REVOKE.reason_closed",
+          "status": "pass",
+          "note": "and the reason is one of the closed enum (session_cancelled, session_moved, seat_withdrawn, safety, venue_operations, credential_revoked)"
+        },
+        {
+          "clause": "C-REVOKE.reason_enum_enforced",
+          "status": "pass",
+          "note": "a reason outside that enum is refused schema_validation (got 400), so the closed set is enforced and not merely documented"
+        },
+        {
+          "clause": "C-REVOKE.floor_untouched",
+          "status": "pass",
+          "note": "the Override took the seats and left the warranty alone: floor_ms, granted_at, floor_deadline and expires_at are byte-identical to the granted values"
+        },
+        {
+          "clause": "C-REVOKE.seats_voided",
+          "status": "pass",
+          "note": "both seat rows are marked revoked rather than deleted (revoked, revoked), so the seats stop occupying and the record of which seats the Hold held survives"
+        },
+        {
+          "clause": "C-REVOKE.seats_reholdable",
+          "status": "pass",
+          "note": "and a second agent can hold exactly those seats immediately afterwards, which is what voiding a Hold has to mean at the seat index"
+        },
+        {
+          "clause": "C-REVOKE.hand_off_refused",
+          "status": "pass",
+          "note": "hand_off against the revoked Hold refuses 409 hold_revoked (got 409 hold_revoked)"
+        },
+        {
+          "clause": "C-REVOKE.refusal_carries_book_url",
+          "status": "pass",
+          "note": "and it carries detail.book_url (https://tickets.embassy.example/session/occ_conf_main) — an operator who took these seats back owes the customer a route to the ones that are left"
+        },
+        {
+          "clause": "C-REVOKE.refusal_carries_reason",
+          "status": "pass",
+          "note": "and the venue's own reason, so the agent can tell a withdrawn screening from a withdrawn seat"
+        },
+        {
+          "clause": "C-REVOKE.release_still_total",
+          "status": "pass",
+          "note": "release_hold against the revoked Hold is still 204 (R2), which is the exception §4.9 states in the row above the catch-all"
+        },
+        {
+          "clause": "C-REVOKE.second_override_no_change",
+          "status": "pass",
+          "note": "a second Override moves nothing — revoked is terminal, and the first reason is the one recorded (200)"
+        },
+        {
+          "clause": "C-REVOKE.second_override_frees_nothing",
+          "status": "pass",
+          "note": "and it reports freeing no seats, because the first one already did"
+        },
+        {
+          "clause": "C-REVOKE.override_from_handed_off",
+          "status": "pass",
+          "note": "§4.9 gives operator_override two sources, live and handed_off; a handed-off Hold overrides to revoked (200)"
+        },
+        {
+          "clause": "C-REVOKE.overrides_counted",
+          "status": "pass",
+          "note": "three Holds of this principal stopped holding before their floor deadline carrying a revocation_reason, and the counter finds exactly three"
+        },
+        {
+          "clause": "C-REVOKE.no_violations_yet",
+          "status": "pass",
+          "note": "and the same query, on the other side of the same split, finds no floor violation — an Override is not one"
+        },
+        {
+          "clause": "C-REVOKE.violation_detectable",
+          "status": "pass",
+          "note": "a Hold whose seats stopped holding before its floor deadline with NO revocation_reason is counted as a violation by that same query, so the zero above was measured and not assumed"
+        },
+        {
+          "clause": "C-REVOKE.counters_separate",
+          "status": "pass",
+          "note": "and planting it did not move operator_overrides, which is what 'reported separately' has to mean when both numbers come off one store"
+        },
+        {
+          "clause": "C-REVOKE.get_hold_after_override",
+          "status": "unprovable",
+          "note": "§4.9's table gives 'revoked | any agent verb | hold_revoked' and T1a says later agent verbs are refused 409 hold_revoked carrying detail.book_url — but the row immediately above it carves release_hold out at 204 (R2), so the catch-all is already known not to be literal, and §4.9's own get_hold rows are total in every state. This binding answers 200 with state=revoked and the revocation_reason beside it, on the documented reading that an Agent whose Hold has gone needs to be told what happened to it. Both readings are available from the text and deciding between them here would be this harness legislating; it needs a specification amendment"
+        }
+      ],
+      "reason": "C-REVOKE.get_hold_after_override: §4.9's table gives 'revoked | any agent verb | hold_revoked' and T1a says later agent verbs are refused 409 hold_revoked carrying detail.book_url — but the row immediately above it carves release_hold out at 204 (R2), so the catch-all is already known not to be literal, and §4.9's own get_hold rows are total in every state. This binding answers 200 with state=revoked and the revocation_reason beside it, on the documented reading that an Agent whose Hold has gone needs to be told what happened to it. Both readings are available from the text and deciding between them here would be this harness legislating; it needs a specification amendment"
+    },
+    {
+      "class": "C-SUBST",
+      "spec_row": "The Server emits the transitive closure of the authored rules; maximalAntichain matches a reference oracle over generated posets including x- members; a hold whose sought crosses a strict boundary returns 412 and writes no hold_seat row; a cross-origin edge is rejected at publish and ignored by the reference Agent.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-subst.ts",
+      "duration_ms": 150.66825000000017,
+      "clauses": [
+        {
+          "clause": "C-SUBST.emitted",
+          "status": "pass",
+          "note": "resolve_occasions answered with 7 Occasions to build a poset from"
+        },
+        {
+          "clause": "C-SUBST.closure",
+          "status": "pass",
+          "note": "the relation the Server emits is transitively closed — no pair a ⪯ b ⪯ c is emitted without a ⪯ c"
+        },
+        {
+          "clause": "C-SUBST.irreflexive",
+          "status": "pass",
+          "note": "and irreflexive: nothing is emitted as a substitute for itself, which would make every strict boundary satisfiable by restating it"
+        },
+        {
+          "clause": "C-SUBST.antichain",
+          "status": "pass",
+          "note": "maximalAntichain matches the independent oracle on all 40 generated posets, 38 of which carry x- extension classes"
+        },
+        {
+          "clause": "C-SUBST.412",
+          "status": "pass",
+          "note": "a hold on an Occasion its `sought` refuses is 412, not 409 and not 400"
+        },
+        {
+          "clause": "C-SUBST.code",
+          "status": "pass",
+          "note": "the code is substitution_refused"
+        },
+        {
+          "clause": "C-SUBST.detail.from",
+          "status": "pass",
+          "note": "S1's detail names the Occasion that refused, so an Agent knows which end of the pair to re-resolve"
+        },
+        {
+          "clause": "C-SUBST.detail.axis",
+          "status": "pass",
+          "note": "and names the axis the Publisher itself authored, not a guess (got \"presentation_class\")"
+        },
+        {
+          "clause": "C-SUBST.no_seat_row",
+          "status": "pass",
+          "note": "and it writes NO hold_seat row — the refusal did not take the seats off the wall on its way out"
+        },
+        {
+          "clause": "C-SUBST.no_hold_row",
+          "status": "pass",
+          "note": "nor a hold row, so nothing later reaps a Hold that was never granted"
+        },
+        {
+          "clause": "C-SUBST.attested_edge_grants",
+          "status": "pass",
+          "note": "a hold whose sought attests ⪯ offered is GRANTED, so the guard is the poset and not a blanket refusal (got 201 {\"changeover\":\"0.1\",\"hold_id\":\"hold_ZXFZKE5WX6ZN2D7YRW6WH0Z8GADTEEV6\",\"state\":\"live\",\"occasion_id\":\"occ_conf_permitted\",\"occasion_etag\":\"1:eOxpKaqFGtmBo6oxM7OoN)"
+        },
+        {
+          "clause": "C-SUBST.poset_agrees",
+          "status": "pass",
+          "note": "the axis the boundary refused on is the axis substitutionRefusal names over the emitted poset — the wire and the semantics are one derivation"
+        },
+        {
+          "clause": "C-SUBST.e1_cross_origin",
+          "status": "pass",
+          "note": "deriving an edge whose target sits at another venue.origin raises E1_CROSS_ORIGIN as an error, so a publish pipeline branches on a code rather than on prose (got [\"E1_CROSS_ORIGIN\",\"E1_CROSS_ORIGIN\"])"
+        },
+        {
+          "clause": "C-SUBST.e1_no_edge_emitted",
+          "status": "pass",
+          "note": "and no permission edge survives derivation — E3 scopes a cluster to (venue.origin, cluster), so an edge across origins is not a weaker permission, it is none"
+        },
+        {
+          "clause": "C-SUBST.agent_ignores",
+          "status": "unprovable",
+          "note": "'ignored by the reference Agent' is a property of an Agent, and O2 assigns the origin check to the consumer precisely because the Server checking its own document constrains nobody; no Agent exists in this repository to be handed one",
+          "missing_path": "packages/agent"
+        }
+      ],
+      "reason": "C-SUBST.agent_ignores: 'ignored by the reference Agent' is a property of an Agent, and O2 assigns the origin check to the consumer precisely because the Server checking its own document constrains nobody; no Agent exists in this repository to be handed one",
+      "missing_path": "packages/agent"
+    },
+    {
+      "class": "C-SEATMAP",
+      "spec_row": "The seat map validates, is same-origin, is credentialed, and its ids are accepted by hold_seats.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-seatmap.ts",
+      "duration_ms": 129.49091700000008,
+      "clauses": [
+        {
+          "clause": "C-SEATMAP.published",
+          "status": "pass",
+          "note": "the Occasion publishes availability.seat_map_ref (https://embassy.example/changeover/v0/occasions/occ_conf_main/seats)"
+        },
+        {
+          "clause": "C-SEATMAP.same_origin",
+          "status": "pass",
+          "note": "and it is same-origin with venue.origin or a delegated origin, compared as a parsed triple (O1)"
+        },
+        {
+          "clause": "C-SEATMAP.obtained",
+          "status": "pass",
+          "note": "the seat map for occ_conf_main was obtained with a read credential"
+        },
+        {
+          "clause": "C-SEATMAP.credentialed",
+          "status": "pass",
+          "note": "a seat map requested without a credential is refused (principal_scope_missing) — §2.10: an unauthenticated seat map is an unbounded enumeration of the house layout"
+        },
+        {
+          "clause": "C-SEATMAP.validates",
+          "status": "pass",
+          "note": "the seat map validates against the frozen seatmap.schema.json, additionalProperties and all"
+        },
+        {
+          "clause": "C-SEATMAP.seats_listed",
+          "status": "pass",
+          "note": "300 seats read back as available from the map"
+        },
+        {
+          "clause": "C-SEATMAP.ids_accepted",
+          "status": "pass",
+          "note": "hold_seats accepts the ids the seat map published, unmodified: [A:1, A:10, A:2] → 201"
+        },
+        {
+          "clause": "C-SEATMAP.ids_identical",
+          "status": "pass",
+          "note": "and the seats it grants are byte-identical to the ids asked for — no normalisation between the document and the verb"
+        },
+        {
+          "clause": "C-SEATMAP.ids_in_store",
+          "status": "pass",
+          "note": "and the same ids are what the store holds, so the agreement survives the write and is not a projection"
+        },
+        {
+          "clause": "C-SEATMAP.unknown_seat",
+          "status": "pass",
+          "note": "a seat id the map does not publish is refused unknown_seat, so the acceptance above is the map's ids and not any string (got 400)"
+        },
+        {
+          "clause": "C-SEATMAP.held_reads_back",
+          "status": "pass",
+          "note": "the three seats this run holds read back as `held` in the next map, so the document a second Agent resolves reflects the boundary's own Holds (held, held, held)"
+        },
+        {
+          "clause": "C-SEATMAP.served",
+          "status": "unprovable",
+          "note": "§2.10 says the seat map is SERVED at availability.seat_map_ref, and §6.3's binding declares 9 routes of which 0 serve one. Every Occasion this Server publishes therefore names a URL the Server does not answer, and \"served from a venue-authorised origin\" has no wire to be observed on. The map above was obtained through the adapter method, which is an in-process call and has no origin"
+        }
+      ],
+      "reason": "C-SEATMAP.served: §2.10 says the seat map is SERVED at availability.seat_map_ref, and §6.3's binding declares 9 routes of which 0 serve one. Every Occasion this Server publishes therefore names a URL the Server does not answer, and \"served from a venue-authorised origin\" has no wire to be observed on. The map above was obtained through the adapter method, which is an in-process call and has no origin"
+    },
+    {
+      "class": "C-CLAIM",
+      "spec_row": "GET {claim_url} is prefetch-safe and does not consume; a second confirm returns claim_consumed; an expired claim renders a typed outcome naming the Occasion.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-claim.ts",
+      "duration_ms": 166.7265,
+      "clauses": [
+        {
+          "clause": "C-CLAIM.fixture",
+          "status": "pass",
+          "note": "hold_CSGM450BT2FXG3EFXTQ4YCHD7SSFVCMF is handed off and the customer holds a claim URL for two seats"
+        },
+        {
+          "clause": "C-CLAIM.prefetch_renders",
+          "status": "pass",
+          "note": "20 GETs of the claim URL — a messaging app's link scanner, before any human — each rendered the handed-off Hold"
+        },
+        {
+          "clause": "C-CLAIM.prefetch_says_unconsumed",
+          "status": "pass",
+          "note": "and not one of them reported `consumed`, which is CL2 in the one member a customer's front end reads"
+        },
+        {
+          "clause": "C-CLAIM.prefetch_store",
+          "status": "pass",
+          "note": "and the store agrees: hold.claimed_at is still null after 20 renders, so nothing transitioned handed_off → claimed behind an unchanged-looking document"
+        },
+        {
+          "clause": "C-CLAIM.render_tx_read_only",
+          "status": "pass",
+          "note": "the transaction options renderClaim opens with are exported as data and say readOnly, so the guarantee can be read rather than inferred from behaviour"
+        },
+        {
+          "clause": "C-CLAIM.render_tx_enforced",
+          "status": "pass",
+          "note": "and the database refuses an UPDATE inside that transaction (read_only_sql_transaction) — CL2 is a property of the store, so an edit that added one write to renderClaim would fail there rather than burn a customer's seats in the field"
+        },
+        {
+          "clause": "C-CLAIM.confirm_consumes",
+          "status": "pass",
+          "note": "the non-idempotent confirm transitions to claimed and says consumed (ok:claimed)"
+        },
+        {
+          "clause": "C-CLAIM.confirm_receipt",
+          "status": "pass",
+          "note": "and it hands the requester a receipt, which is the first-touch binding CL2 requires and the only thing that makes a later presentation distinguishable"
+        },
+        {
+          "clause": "C-CLAIM.confirm_store",
+          "status": "pass",
+          "note": "and the store carries claimed_at, so the transition is a fact about the Hold and not a member of a response (2026-08-25 21:47:58.54825+00)"
+        },
+        {
+          "clause": "C-CLAIM.receipt_binds",
+          "status": "pass",
+          "note": "the same requester presenting its receipt is answered rather than refused (ok:claimed) — a customer who reloads the page they were sent to must not be locked out of their own claim"
+        },
+        {
+          "clause": "C-CLAIM.second_confirm",
+          "status": "pass",
+          "note": "a later presentation from an unbound requester fails claim_consumed"
+        },
+        {
+          "clause": "C-CLAIM.second_confirm_status",
+          "status": "pass",
+          "note": "and it is a 409, which is what the closed taxonomy maps that code to"
+        },
+        {
+          "clause": "C-CLAIM.consumed_names_occasion",
+          "status": "pass",
+          "note": "and CL3's typed outcome names the Occasion and links book_url (occ_conf_main → https://tickets.embassy.example/session/occ_conf_main) — landing on an empty cart with no explanation is the exact failure this is here to prevent"
+        },
+        {
+          "clause": "C-CLAIM.second_confirm_store",
+          "status": "pass",
+          "note": "and the refused confirm moved nothing: claimed_at is the instant the first one stamped, unchanged"
+        },
+        {
+          "clause": "C-CLAIM.no_altering_param",
+          "status": "pass",
+          "note": "a claim URL with edited seat_ids and showtime_id parses to exactly the two members the endpoint reads — there is nowhere to put a third"
+        },
+        {
+          "clause": "C-CLAIM.tamper_store",
+          "status": "pass",
+          "note": "and putting the tampered URL through both surfaces left the Hold and every one of its seat rows byte-identical in the store"
+        },
+        {
+          "clause": "C-CLAIM.expired_fixture",
+          "status": "pass",
+          "note": "hold_GSB3V7G1VQ3WRF25ENZ6D58QV53P6XBH aged ten minutes relative to itself; its claim window closed at 2026-08-25T21:39:58.570083+00:00"
+        },
+        {
+          "clause": "C-CLAIM.expired_code",
+          "status": "pass",
+          "note": "a claim presented after its window renders claim_expired"
+        },
+        {
+          "clause": "C-CLAIM.expired_status",
+          "status": "pass",
+          "note": "as a 410 — gone, and not retryable"
+        },
+        {
+          "clause": "C-CLAIM.expired_names_occasion",
+          "status": "pass",
+          "note": "and it names the Occasion and links book_url (occ_conf_main → https://tickets.embassy.example/session/occ_conf_main), which is the difference between a customer who can still buy a ticket and one who cannot"
+        },
+        {
+          "clause": "C-CLAIM.expired_confirm",
+          "status": "pass",
+          "note": "and the confirm refuses it too, so the window is not a rendering courtesy that a POST walks past"
+        },
+        {
+          "clause": "C-CLAIM.expired_store",
+          "status": "pass",
+          "note": "with claimed_at still null in the store — an expired claim consumed nothing"
+        },
+        {
+          "clause": "C-CLAIM.fetched_over_the_wire",
+          "status": "unprovable",
+          "note": "§7 says GET {claim_url}, and the URL minted here lands at the venue's own seat-select page — deep_link is defined as landing on the exhibitor's EXISTING front end, and §6.3 declares 9 routes of which 0 serve a claim. So the render above is renderClaim, the function that endpoint would call, exercised in-process: the store effects are asserted exactly, and the wire behaviour of a page this repository does not contain is not"
+        }
+      ],
+      "reason": "C-CLAIM.fetched_over_the_wire: §7 says GET {claim_url}, and the URL minted here lands at the venue's own seat-select page — deep_link is defined as landing on the exhibitor's EXISTING front end, and §6.3 declares 9 routes of which 0 serve a claim. So the render above is renderClaim, the function that endpoint would call, exercised in-process: the store effects are asserted exactly, and the wire behaviour of a page this repository does not contain is not"
+    },
+    {
+      "class": "C-ORIGIN",
+      "spec_row": "Every absolute URL is same-origin with venue.origin or a delegated origin; a fixture with an off-origin book_url is rejected at publish and refused by the reference Agent; a cross-origin redirect on the well-known path is refused.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-origin.ts",
+      "duration_ms": 120.88499999999976,
+      "clauses": [
+        {
+          "clause": "C-ORIGIN.surface",
+          "status": "pass",
+          "note": "12 emitted documents collected across the bootstrap, read and hold surfaces, hand-off included (hand_off 200)"
+        },
+        {
+          "clause": "C-ORIGIN.scanned",
+          "status": "pass",
+          "note": "27 absolute URLs walked across those documents"
+        },
+        {
+          "clause": "C-ORIGIN.o1_partition",
+          "status": "pass",
+          "note": "exactly one emitted document carries an off-origin URL, and it is the fixture this bench planted; every other absolute URL is same-origin with venue.origin or with the delegated origin"
+        },
+        {
+          "clause": "C-ORIGIN.o1_planted",
+          "status": "pass",
+          "note": "and the one it carries is exactly the planted `book_url`, unchanged — nothing between the fixture loader and the wire looked at it"
+        },
+        {
+          "clause": "C-ORIGIN.userinfo",
+          "status": "pass",
+          "note": "no emitted URL carries userinfo, which O1 makes invalid regardless of host"
+        },
+        {
+          "clause": "C-ORIGIN.parsed_triple",
+          "status": "pass",
+          "note": "the comparator the Server ships rejects https://embassy.example.evil.test/changeover/v0/occasions, which passes a string-prefix test against https://embassy.example — O1 is a parsed (scheme, host, port) triple and a prefix check is the usual way it is got wrong"
+        },
+        {
+          "clause": "C-ORIGIN.normalised",
+          "status": "pass",
+          "note": "and it ASCII-lowercases the host and normalises the default port, so one origin has one spelling"
+        },
+        {
+          "clause": "C-ORIGIN.claim_url",
+          "status": "pass",
+          "note": "the claim_url minted at hand-off is same-origin with venue.origin (https://embassy.example/tickets/select?showtime_id=occ_conf_)"
+        },
+        {
+          "clause": "C-ORIGIN.no_redirect",
+          "status": "pass",
+          "note": "GET /.well-known/changeover answers 200 with the redirect unfollowed — the Server emits no hop for a consumer to follow off-origin"
+        },
+        {
+          "clause": "C-ORIGIN.no_location",
+          "status": "pass",
+          "note": "and carries no Location header"
+        },
+        {
+          "clause": "C-ORIGIN.o3_publish",
+          "status": "unprovable",
+          "note": "O3 requires a Server reject an Occasion violating O1 at publish with 400 schema_validation, and there is no publish surface: ROUTES declares 9 routes and 0 of them accept an Occasion. The store is loaded by a fixture seeder, and clause o1_planted above shows what the boundary then emits — so the rule has nowhere to be enforced rather than somewhere it is enforced wrongly"
+        },
+        {
+          "clause": "C-ORIGIN.agent_refuses",
+          "status": "unprovable",
+          "note": "O2 assigns the refusal to the consumer — an Agent MUST NOT present, navigate to, or pass on a URL failing O1, and MUST NOT follow a cross-origin redirect. There is no Agent in this repository, and an Agent written here could not falsify the claim anyway",
+          "missing_path": "packages/agent"
+        }
+      ],
+      "reason": "C-ORIGIN.o3_publish: O3 requires a Server reject an Occasion violating O1 at publish with 400 schema_validation, and there is no publish surface: ROUTES declares 9 routes and 0 of them accept an Occasion. The store is loaded by a fixture seeder, and clause o1_planted above shows what the boundary then emits — so the rule has nowhere to be enforced rather than somewhere it is enforced wrongly · C-ORIGIN.agent_refuses: O2 assigns the refusal to the consumer — an Agent MUST NOT present, navigate to, or pass on a URL failing O1, and MUST NOT follow a cross-origin redirect. There is no Agent in this repository, and an Agent written here could not falsify the claim anyway",
+      "missing_path": "packages/agent"
+    },
+    {
+      "class": "C-AUTHZ",
+      "spec_row": "With two credentials on one site, every verb by B against A's Hold returns 404 and the store shows no state change.",
+      "status": "pass",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-authz.ts",
+      "duration_ms": 148.67783400000008,
+      "clauses": [
+        {
+          "clause": "C-AUTHZ.fixture",
+          "status": "pass",
+          "note": "A holds hold_SDXASKNM90BHM5GGXHJKYFQD0EFH47YG over two seats, granted through the wire"
+        },
+        {
+          "clause": "C-AUTHZ.404",
+          "status": "pass",
+          "note": "every agent verb by B against A's Hold answers 404"
+        },
+        {
+          "clause": "C-AUTHZ.never_403",
+          "status": "pass",
+          "note": "none of them answers 403 — a 403 confirms the Hold exists and turns the id space into an enumeration oracle"
+        },
+        {
+          "clause": "C-AUTHZ.code.get_hold",
+          "status": "pass",
+          "note": "get_hold by B refuses hold_not_found, which is the same code an id that was never minted gets"
+        },
+        {
+          "clause": "C-AUTHZ.code.release_hold",
+          "status": "pass",
+          "note": "release_hold by B refuses hold_not_found, which is the same code an id that was never minted gets"
+        },
+        {
+          "clause": "C-AUTHZ.code.hand_off",
+          "status": "pass",
+          "note": "hand_off by B refuses hold_not_found, which is the same code an id that was never minted gets"
+        },
+        {
+          "clause": "C-AUTHZ.oracle",
+          "status": "pass",
+          "note": "for all three verbs B's refusal for A's real Hold is byte-identical, `server_time` aside, to its refusal for a hold_id that was never minted"
+        },
+        {
+          "clause": "C-AUTHZ.operator_surface",
+          "status": "pass",
+          "note": "an agent credential on the operator route is refused 403 not_authorised, which is a fact about the SURFACE and not about the Hold (got 403)"
+        },
+        {
+          "clause": "C-AUTHZ.operator_surface_leaks_nothing",
+          "status": "pass",
+          "note": "and that 403 is identical for a hold_id that was never minted, so the surface denial is not an oracle either"
+        },
+        {
+          "clause": "C-AUTHZ.no_state_change.hold",
+          "status": "pass",
+          "note": "after seven refused calls by B the hold row is unchanged, column for column"
+        },
+        {
+          "clause": "C-AUTHZ.no_state_change.seats",
+          "status": "pass",
+          "note": "and both hold_seat rows are unchanged, including held_until"
+        },
+        {
+          "clause": "C-AUTHZ.a_unaffected",
+          "status": "pass",
+          "note": "A reads its own Hold back live afterwards, so the 404s were Z1 and not a broken verb (got 200)"
+        }
+      ]
+    },
+    {
+      "class": "C-ABSENCE",
+      "spec_row": "**.1** no settlement verb anywhere. **.2** member manifest **set equality**. **.3** the `SET LOCAL ROLE` kill test raises `insufficient_privilege`. **.4** outbound byte canary: no response body matches an email, a Luhn-valid 13–19 digit run, or an E.164 string — **fail the build, do not filter the response**.",
+      "status": "pass",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-absence.ts",
+      "duration_ms": 811.486083,
+      "clauses": [
+        {
+          "clause": "C-ABSENCE.1/tool_count",
+          "status": "pass",
+          "note": "tools/list carries exactly 5 tools: resolve_occasions, hold_seats, get_hold, release_hold, hand_off"
+        },
+        {
+          "clause": "C-ABSENCE.1/tool_names",
+          "status": "pass",
+          "note": "0 listed tool names match /settle|pay|capture|refund|charge|price/"
+        },
+        {
+          "clause": "C-ABSENCE.1/tool_table",
+          "status": "pass",
+          "note": "the declared tool table and the served tools/list are the same five, in order"
+        },
+        {
+          "clause": "C-ABSENCE.1/route_segments",
+          "status": "pass",
+          "note": "0 of 28 route segments across 9 routes match the settlement pattern"
+        },
+        {
+          "clause": "C-ABSENCE.1/route_unreachable",
+          "status": "pass",
+          "note": "all 5 settlement-shaped paths answer 404 over a socket — absent, not forbidden and not unimplemented"
+        },
+        {
+          "clause": "C-ABSENCE.1/tool_uncallable",
+          "status": "pass",
+          "note": "all 5 settlement-named tools/call attempts were refused and none carried structuredContent — the tool is absent, not disabled and not permission-checked"
+        },
+        {
+          "clause": "C-ABSENCE.2/no_unmanifested",
+          "status": "pass",
+          "note": "0 unmanifested members — 177 declared across 8 document schemas, independently collected"
+        },
+        {
+          "clause": "C-ABSENCE.2/no_orphans",
+          "status": "pass",
+          "note": "0 orphan manifest entries across 177 listed members"
+        },
+        {
+          "clause": "C-ABSENCE.2/count",
+          "status": "pass",
+          "note": "the manifest's declared count 177 matches its own list length"
+        },
+        {
+          "clause": "C-ABSENCE.3/insert_occasion",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege (every NOT NULL column is supplied and every CHECK is satisfied, so this row would genuinely land if the grant allowed it — an abbreviated INSERT would raise 23502 under a role that had the privilege, and a kill test that a constraint would have stopped anyway asserts nothing about the grant) · W3 — the estate is the exhibitor's system of record; a boundary that can write it can manufacture the availability it then reports"
+        },
+        {
+          "clause": "C-ABSENCE.3/insert_occasion_seat",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege (a foreign key to occasion stands behind the grant here and cannot be satisfied without first committing the row the previous attempt is forbidden to write, so this one is NOT used as a negative control — but 42501 is still the only passing answer, and a 23503 arriving in its place is reported as a failure rather than quietly accepted as 'denied anyway') · W3 — the same, one level down: the seat inventory is not the boundary's to invent"
+        },
+        {
+          "clause": "C-ABSENCE.3/update_occasion",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · W3 — the boundary cannot withdraw or rewrite a screening it did not publish"
+        },
+        {
+          "clause": "C-ABSENCE.3/delete_hold",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · M2 — a Hold reports its seats as granted for the life of the record, so the boundary cannot end that life"
+        },
+        {
+          "clause": "C-ABSENCE.3/update_hold_floor_ms",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · T1/T3 — the floor is immovable by grant, not by the absence of a code path that moves it"
+        },
+        {
+          "clause": "C-ABSENCE.3/update_hold_granted_at",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · T3 — a movable grant instant is a movable floor wearing a different column name"
+        },
+        {
+          "clause": "C-ABSENCE.3/update_hold_agent_id",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · C-AUTHZ — a Hold that can change hands by UPDATE has no owner"
+        },
+        {
+          "clause": "C-ABSENCE.3/update_access_log",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · A3 — the log is append-only by grant; a refusal that can be rewritten to a success is not evidence"
+        },
+        {
+          "clause": "C-ABSENCE.3/delete_access_log",
+          "status": "pass",
+          "note": "denied to changeover_agent — attempted under SET LOCAL ROLE, 42501 insufficient_privilege · P2/A3 — erasure is honoured by destroying the site epoch key and detaching the partition, never by deleting a row"
+        },
+        {
+          "clause": "C-ABSENCE.3/retention_reads_hold",
+          "status": "pass",
+          "note": "denied to changeover_retention — attempted under SET LOCAL ROLE, 42P01 undefined_table (USAGE on schema public is revoked from PUBLIC and re-granted to changeover_agent alone, so the table name does not resolve for this role at all) · A3 — the role that can destroy the record of the boundary holds nothing else, so it cannot read the boundary either"
+        },
+        {
+          "clause": "C-ABSENCE.3/retention_reads_occasion",
+          "status": "pass",
+          "note": "denied to changeover_retention — attempted under SET LOCAL ROLE, 42P01 undefined_table (the same schema-level closure: a name that never resolves is a stronger denial than one that resolves and is refused) · A3 — the same, stated of the estate: USAGE on schema public is closed and re-opened to exactly one role"
+        },
+        {
+          "clause": "C-ABSENCE.3/control_insert_occasion",
+          "status": "pass",
+          "note": "the SAME statement was PERMITTED to the login role postgres and rolled back — so the denial above is the grant, not a role that never switched, a typo or a constraint arriving first"
+        },
+        {
+          "clause": "C-ABSENCE.3/control_update_occasion",
+          "status": "pass",
+          "note": "the SAME statement was PERMITTED to the login role postgres and rolled back — so the denial above is the grant, not a role that never switched, a typo or a constraint arriving first"
+        },
+        {
+          "clause": "C-ABSENCE.3/control_delete_hold",
+          "status": "pass",
+          "note": "the SAME statement was PERMITTED to the login role postgres and rolled back — so the denial above is the grant, not a role that never switched, a typo or a constraint arriving first"
+        },
+        {
+          "clause": "C-ABSENCE.3/no_payment_table",
+          "status": "pass",
+          "note": "0 of 195 table and column names match the settlement pattern — SPEC.md §5.1's \"no INSERT on payment tables\" holds because there is no payment table to hold an INSERT on"
+        },
+        {
+          "clause": "C-ABSENCE.3/no_customer_table",
+          "status": "pass",
+          "note": "0 of 195 table and column names carry a person rather than a seat"
+        },
+        {
+          "clause": "C-ABSENCE.4/detects_email",
+          "status": "pass",
+          "note": "the canary fires on a email-shaped value it was handed directly"
+        },
+        {
+          "clause": "C-ABSENCE.4/detects_e164",
+          "status": "pass",
+          "note": "the canary fires on a e164-shaped value it was handed directly"
+        },
+        {
+          "clause": "C-ABSENCE.4/detects_pan",
+          "status": "pass",
+          "note": "the canary fires on a luhn-shaped value it was handed directly"
+        },
+        {
+          "clause": "C-ABSENCE.4/detects_pan_spaced",
+          "status": "pass",
+          "note": "the canary fires on a luhn-shaped value it was handed directly"
+        },
+        {
+          "clause": "C-ABSENCE.4/detects_pan_dashed",
+          "status": "pass",
+          "note": "the canary fires on a luhn-shaped value it was handed directly"
+        },
+        {
+          "clause": "C-ABSENCE.4/detects_pan_embedded",
+          "status": "pass",
+          "note": "the canary fires on a luhn-shaped value it was handed directly"
+        },
+        {
+          "clause": "C-ABSENCE.4/no_false_positive",
+          "status": "pass",
+          "note": "the canary is silent on a Hold-shaped body of ids, seats, RFC 3339 instants and integer durations"
+        },
+        {
+          "clause": "C-ABSENCE.4/capability_contact",
+          "status": "pass",
+          "note": "the only email leaving the boundary is the operator address the capability document is REQUIRED to publish at /usage_policy/contact; removing that one member leaves the body clean, and it equals the address the site declared (SPEC.md §5.1 Lock 4 and schemas/capability.schema.json disagree here — reported, not filtered)"
+        },
+        {
+          "clause": "C-ABSENCE.4/HTTP_canary",
+          "status": "pass",
+          "note": "23 HTTP response bodies carry no email, no E.164 string and no Luhn-valid 13–19 digit run"
+        },
+        {
+          "clause": "C-ABSENCE.4/HTTP_no_internals",
+          "status": "pass",
+          "note": "no HTTP body carries a stack frame, a filesystem path or a JavaScript error class name"
+        },
+        {
+          "clause": "C-ABSENCE.4/HTTP_no_echo",
+          "status": "pass",
+          "note": "no HTTP refusal echoes the personal value that produced it, whole or in part"
+        },
+        {
+          "clause": "C-ABSENCE.4/MCP_canary",
+          "status": "pass",
+          "note": "15 MCP response bodies carry no email, no E.164 string and no Luhn-valid 13–19 digit run"
+        },
+        {
+          "clause": "C-ABSENCE.4/MCP_no_internals",
+          "status": "pass",
+          "note": "no MCP body carries a stack frame, a filesystem path or a JavaScript error class name"
+        },
+        {
+          "clause": "C-ABSENCE.4/MCP_no_echo",
+          "status": "pass",
+          "note": "no MCP refusal echoes the personal value that produced it, whole or in part"
+        },
+        {
+          "clause": "C-ABSENCE.bodies_scanned",
+          "status": "pass",
+          "note": "23 HTTP and 15 MCP response bodies left the boundary as bytes and every one was scanned whole; none was filtered, masked or redacted, and there is no function in packages/conformance/src/absence that could"
+        }
+      ]
+    },
+    {
+      "class": "C-PII-INGEST",
+      "spec_row": "Email-, phone- and PAN-shaped work_hint are each refused, and a full scan of the access log after a poisoned run matches none of those patterns.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/inject/c-pii-ingest.ts",
+      "duration_ms": 12.121707999998762,
+      "clauses": [
+        {
+          "clause": "C-PII-INGEST.1",
+          "status": "pass",
+          "note": "P1 refuses every email-shaped work_hint — 2 of them, each 400 hint_rejected, none returned modified"
+        },
+        {
+          "clause": "C-PII-INGEST.1",
+          "status": "pass",
+          "note": "P1 refuses every phone-shaped work_hint — 2 of them, each 400 hint_rejected, none returned modified"
+        },
+        {
+          "clause": "C-PII-INGEST.1",
+          "status": "pass",
+          "note": "P1 refuses every pan-shaped work_hint — 2 of them, each 400 hint_rejected, none returned modified"
+        },
+        {
+          "clause": "C-PII-INGEST.1",
+          "status": "pass",
+          "note": "P1 refuses every uri-shaped work_hint — 1 of them, each 400 hint_rejected, none returned modified"
+        },
+        {
+          "clause": "C-PII-INGEST.2",
+          "status": "pass",
+          "note": "none of the 7 refusal reasons quotes the hint back — P1 forbids interpolating it into any prose field, and a reason is one"
+        },
+        {
+          "clause": "C-PII-INGEST.3",
+          "status": "pass",
+          "note": "all 5 ordinary hints are admitted, colons and ampersands and exclamation marks included — P1 is a shape rule, not a ban on titles"
+        }
+      ]
+    },
+    {
+      "class": "C-INJECT",
+      "spec_row": ".1 every URL in every emitted document is same-origin. .2 with poisoned prose the etag is byte-identical to the unpoisoned run. .3 prose bytes are within Q1.",
+      "status": "pass",
+      "binding": "in_process",
+      "source": "packages/conformance/src/inject/c-inject.ts",
+      "duration_ms": 322.0442089999997,
+      "clauses": [
+        {
+          "clause": "C-INJECT.0a",
+          "status": "pass",
+          "note": "the poison changed prose in all 3 golden Occasions"
+        },
+        {
+          "clause": "C-INJECT.0b",
+          "status": "pass",
+          "note": "all 4 document surfaces §5.2 names carry their imperative text verbatim"
+        },
+        {
+          "clause": "C-INJECT.0c",
+          "status": "pass",
+          "note": "every poison value fits the schema's 2000-character prose envelope, so each one is publishable"
+        },
+        {
+          "clause": "C-INJECT.0d",
+          "status": "pass",
+          "note": "the corpus splits as declared: 6 link-free values a conforming Server may publish, 5 PR2 forbids"
+        },
+        {
+          "clause": "C-INJECT.1a",
+          "status": "pass",
+          "note": "the audit reached 9 URL members across 3 poisoned Occasions — an audit that visits nothing also finds nothing"
+        },
+        {
+          "clause": "C-INJECT.1b",
+          "status": "pass",
+          "note": "every URL member is O1-permitted against https://embassy.example or its apex delegation record"
+        },
+        {
+          "clause": "C-INJECT.1c",
+          "status": "pass",
+          "note": "no navigable link survives inside a prose envelope — PR2 is what keeps the injected destination out of the document"
+        },
+        {
+          "clause": "C-INJECT.1d",
+          "status": "pass",
+          "note": "a synopsis carrying an attacker host is detected as a prose link, so .1c is a fact and not an absence of looking"
+        },
+        {
+          "clause": "C-INJECT.1e",
+          "status": "pass",
+          "note": "O1 decides all 9 trap URLs correctly, including the prefix trap and the userinfo trap — the comparison is a parsed triple"
+        },
+        {
+          "clause": "C-INJECT.2a",
+          "status": "pass",
+          "note": "occasion-embassy-sat-1900.json: the poisoned digest is byte-identical to the unpoisoned run and to the frozen 1:XB7PZvK6GJP0BY4IPzKdmuCc-R5RaivznwPz_KDY-04"
+        },
+        {
+          "clause": "C-INJECT.2a",
+          "status": "pass",
+          "note": "occasion-multiplex-sat-2100.json: the poisoned digest is byte-identical to the unpoisoned run and to the frozen 1:ktjR8_5bWWg_lejnE6BqPSaNzXSyCzYynsci_O9_Qr4"
+        },
+        {
+          "clause": "C-INJECT.2a",
+          "status": "pass",
+          "note": "occasion-multiplex-sun-1400.json: the poisoned digest is byte-identical to the unpoisoned run and to the frozen 1:9MokuOSTWVJ-_t1IMbm7cfT61VjN3kfb3yDZtK6UJJ4"
+        },
+        {
+          "clause": "C-INJECT.2b",
+          "status": "pass",
+          "note": "the same minter over the same poisoned document moves for a changed start time and for a swapped work — the invariance above is prose-specific, not a constant"
+        },
+        {
+          "clause": "C-INJECT.2h",
+          "status": "pass",
+          "note": "a substitution edge's `detail` is prose INSIDE the projection (§2.2 projects /substitution whole), so editing it moves the digest — §2.4 and projection-0-1.json both say ONE prose exception and there are two; not a §5.2 surface, because edges are derived from the venue's own authored policy"
+        },
+        {
+          "clause": "C-INJECT.2c",
+          "status": "pass",
+          "note": "a refusal whose reason carries the vendor's poisoned text still renders code=substitution_refused, remediation=re_resolve, status 412 — the decision is typed and the prose is an envelope"
+        },
+        {
+          "clause": "C-INJECT.2d",
+          "status": "pass",
+          "note": "a hold across the strict boundary still returns 412 substitution_refused naming occ_embassy_20260829T1900_s1, with the withdrawal notice sitting in three prose fields of the same document"
+        },
+        {
+          "clause": "C-INJECT.2e",
+          "status": "pass",
+          "note": "the refused hold wrote nothing — 0 rows across hold, hold_seat, hold_cluster and hold_slot, unchanged (S1)"
+        },
+        {
+          "clause": "C-INJECT.2f",
+          "status": "pass",
+          "note": "the refusal's reason is re-typed CHANGEOVER prose and quotes none of the poison back — PR3 in force at the one place vendor text reaches an Agent"
+        },
+        {
+          "clause": "C-INJECT.2g",
+          "status": "pass",
+          "note": "the substitution the publisher attested is still granted under the same poison — the refusal above is the poset deciding, not the poison breaking it"
+        },
+        {
+          "clause": "C-INJECT.3a",
+          "status": "pass",
+          "note": "every poisoned Occasion is within Q1's 8000-byte per-Occasion cap; the largest is occasion-embassy-sat-1900.json at 1437"
+        },
+        {
+          "clause": "C-INJECT.3b",
+          "status": "pass",
+          "note": "the byte count is a real measurement: two maximal prose envelopes take the same Occasion from 343 to 4245 bytes"
+        },
+        {
+          "clause": "C-INJECT.3c",
+          "status": "pass",
+          "note": "a 132-Occasion flood of 4553-byte documents is paged to 43 at 195779 bytes — under Q1's 200000, and paged rather than exceeded"
+        }
+      ]
+    },
+    {
+      "class": "C-REFUSE",
+      "spec_row": "Refusals never mixed with rows; guard order per G1 against a fixture failing four guards at once; every refusal validates against its code's closed detail branch; a refusal carrying an extra member is rejected by the reference Agent.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-refuse.ts",
+      "duration_ms": 153.37162500000022,
+      "clauses": [
+        {
+          "clause": "C-REFUSE.g1_order",
+          "status": "pass",
+          "note": "one request failing four guards at once answers the FIRST in G1 order, and repairing one failure at a time reveals the next — four distinct codes with four distinct remediations"
+        },
+        {
+          "clause": "C-REFUSE.g1_ascending",
+          "status": "pass",
+          "note": "and the G1 steps those codes sit at are strictly ascending: 2, 4, 7, 10"
+        },
+        {
+          "clause": "C-REFUSE.g1_read_only",
+          "status": "pass",
+          "note": "none of the four wrote a hold or hold_seat row — G1 is read-only through step 6 and every step these four sit at is declared writes: false"
+        },
+        {
+          "clause": "C-REFUSE.g1_step1",
+          "status": "pass",
+          "note": "the SAME body that answers schema_validation at Profile 1 answers 501 profile_not_supported at Profile 0, so the profile guard runs before validation and a site publishing no hold verbs does not leak that the surface parses (got 501)"
+        },
+        {
+          "clause": "C-REFUSE.never_mixed",
+          "status": "pass",
+          "note": "no refusal carries a hold, a seat list, a read_token or a page of Occasions — first failure wins and there is no partial result beside it"
+        },
+        {
+          "clause": "C-REFUSE.status",
+          "status": "pass",
+          "note": "every refusal's HTTP status is REFUSAL_STATUS[code] — 5 of 5"
+        },
+        {
+          "clause": "C-REFUSE.detail_branch",
+          "status": "pass",
+          "note": "all 5 refusals validate against the frozen refusal schema once the three RFC 9457 members are removed — each detail against its own code's closed oneOf branch"
+        },
+        {
+          "clause": "C-REFUSE.extra_member_invalid",
+          "status": "pass",
+          "note": "and a refusal carrying one extra member fails that same validation, so the branch is closed rather than merely satisfied"
+        },
+        {
+          "clause": "C-REFUSE.problem_json",
+          "status": "pass",
+          "note": "the HTTP body carries exactly type/status/title over the refusal document, and type is a URN naming the code (urn:changeover:refusal:occasion_moved)"
+        },
+        {
+          "clause": "C-REFUSE.g1_table",
+          "status": "pass",
+          "note": "G1 is 12 steps over 15 codes, and firstInG1Order picks schema_validation out of an unordered set"
+        },
+        {
+          "clause": "C-REFUSE.agent_rejects_extra",
+          "status": "unprovable",
+          "note": "'rejected by the reference Agent' is a property of an Agent, and no Agent exists in this repository. The structural half is asserted above — refusal.schema.json is additionalProperties: false and a poisoned document fails it — but an Agent's refusal to act on one cannot be observed without an Agent, and one written here could not falsify the claim",
+          "missing_path": "packages/agent"
+        }
+      ],
+      "reason": "C-REFUSE.agent_rejects_extra: 'rejected by the reference Agent' is a property of an Agent, and no Agent exists in this repository. The structural half is asserted above — refusal.schema.json is additionalProperties: false and a poisoned document fails it — but an Agent's refusal to act on one cannot be observed without an Agent, and one written here could not falsify the claim",
+      "missing_path": "packages/agent"
+    },
+    {
+      "class": "C-CLOCK",
+      "spec_row": "server_time on every response and non-decreasing per hold; no request accepts a client timestamp; DST-fold and DST-gap fixtures.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-clock.ts",
+      "duration_ms": 160.93658299999993,
+      "clauses": [
+        {
+          "clause": "C-CLOCK.fixtures_present",
+          "status": "pass",
+          "note": "both DST fixtures load: fixtures/dst/fold.json names two sessions at 2027-04-04T02:30, fixtures/dst/gap.json names 2026-09-27T02:30 as absent"
+        },
+        {
+          "clause": "C-CLOCK.header",
+          "status": "pass",
+          "note": "all 8 responses carry Changeover-Server-Time as RFC 3339 with a mandatory offset — including the two refusals, where an Agent needs it most"
+        },
+        {
+          "clause": "C-CLOCK.k6",
+          "status": "pass",
+          "note": "server_time is non-decreasing across eight successive get_hold responses for one hold_id (2026-08-25T21:47:58.70804+00:00 … 2026-08-25T21:47:58.720607+00:00)"
+        },
+        {
+          "clause": "C-CLOCK.k6_live",
+          "status": "pass",
+          "note": "and it advances rather than being frozen, so the monotonicity is a clock and not a constant"
+        },
+        {
+          "clause": "C-CLOCK.k4_derived",
+          "status": "pass",
+          "note": "floor_deadline is granted_at + floor_ms to the millisecond, which the hold_floor_derived CHECK makes unwritable otherwise"
+        },
+        {
+          "clause": "C-CLOCK.k4_one_source",
+          "status": "pass",
+          "note": "granted_at sits within 31ms of the database's own clock, so it was read there and not on an API node whose clock may lead it"
+        },
+        {
+          "clause": "C-CLOCK.k3",
+          "status": "pass",
+          "note": "all four client-supplied time members are refused 400 schema_validation — K3 holds because no request body carries one, not because one is checked"
+        },
+        {
+          "clause": "C-CLOCK.k3_no_write",
+          "status": "pass",
+          "note": "and none of the four wrote a hold row on its way to being refused"
+        },
+        {
+          "clause": "C-CLOCK.fold_zone",
+          "status": "pass",
+          "note": "2027-04-04T02:30 happens twice in Pacific/Auckland: once at +13:00 and once at +12:00"
+        },
+        {
+          "clause": "C-CLOCK.fold_separation",
+          "status": "pass",
+          "note": "and the two are exactly an hour apart, which is what makes them two screenings rather than one written down twice"
+        },
+        {
+          "clause": "C-CLOCK.fold_resolved",
+          "status": "pass",
+          "note": "resolve_occasions answers with both sessions of the fold, not one"
+        },
+        {
+          "clause": "C-CLOCK.fold_offsets",
+          "status": "pass",
+          "note": "both carry the same instant.local_wall and different instant.local_wall_offset — the offset is the disambiguator, and it is on the wire"
+        },
+        {
+          "clause": "C-CLOCK.fold_store",
+          "status": "pass",
+          "note": "and the store holds two rows: local_wall is not the key, so the second did not overwrite the first"
+        },
+        {
+          "clause": "C-CLOCK.fold_row_offsets",
+          "status": "pass",
+          "note": "two log rows derived from the two instants share local_wall 2027-04-04T02:30 and differ only on local_wall_offset"
+        },
+        {
+          "clause": "C-CLOCK.fold_natural_key",
+          "status": "pass",
+          "note": "both survive: the ingest key carries local_wall_offset, so two sessions at one local_wall are two facts and ON CONFLICT DO NOTHING drops neither"
+        },
+        {
+          "clause": "C-CLOCK.fold_both_offsets",
+          "status": "pass",
+          "note": "and the two rows are the two offsets, so the surviving pair is the pair that was written"
+        },
+        {
+          "clause": "C-CLOCK.fold_idempotent",
+          "status": "pass",
+          "note": "a third write repeating the first instant adds no row — idempotent ingest still holds, which is what makes the surviving second row a fact about the offset and not about the key being unique enough by accident"
+        },
+        {
+          "clause": "C-CLOCK.fold_slot",
+          "status": "pass",
+          "note": "and the measurement slot derives from local wall time, so a marathon's 2am cohort stays on the Sunday instead of migrating into Saturday night once a year"
+        },
+        {
+          "clause": "C-CLOCK.gap_edges",
+          "status": "pass",
+          "note": "the clocks jump from 2026-09-27T01:30+12:00 straight to 2026-09-27T03:00+13:00"
+        },
+        {
+          "clause": "C-CLOCK.gap_absent",
+          "status": "pass",
+          "note": "sweeping 241 consecutive minutes across the transition, no instant renders a local_wall in the 2026-09-27T02:xx hour — deriving forward from an instant cannot produce a time the zone does not have"
+        },
+        {
+          "clause": "C-CLOCK.gap_publisher_error",
+          "status": "pass",
+          "note": "an Occasion published as 2026-09-27T02:30+12:00 actually runs at 2026-09-27T03:30+13:00 — an hour out, silently, and §2.8 is why a Publisher MUST NOT emit a local_wall the zone does not have"
+        },
+        {
+          "clause": "C-CLOCK.fold_not_interchangeable",
+          "status": "pass",
+          "note": "presenting the late session's etag against the early session is refused 412 — the two 02:30s are not interchangeable at the boundary either"
+        },
+        {
+          "clause": "C-CLOCK.occasion_document_server_time",
+          "status": "unprovable",
+          "note": "§2.2 makes `server_time` REQUIRED on the Occasion document and K4 requires every server_time be derived from the Server's own time source, but the specification never says whether a STORED Occasion's server_time is re-projected at render. Both implementations in this tree serve the stored value verbatim while re-projecting the response envelope and the Changeover-Server-Time header, and §7's own C-CLOCK row is satisfied by those. The clause cannot be decided without a specification amendment, and deciding it here would be this harness legislating"
+        }
+      ],
+      "reason": "C-CLOCK.occasion_document_server_time: §2.2 makes `server_time` REQUIRED on the Occasion document and K4 requires every server_time be derived from the Server's own time source, but the specification never says whether a STORED Occasion's server_time is re-projected at render. Both implementations in this tree serve the stored value verbatim while re-projecting the response envelope and the Changeover-Server-Time header, and §7's own C-CLOCK row is satisfied by those. The clause cannot be decided without a specification amendment, and deciding it here would be this harness legislating"
+    },
+    {
+      "class": "C-LOG",
+      "spec_row": "One row per invocation including refusals; fail-closed on writes; UPDATE/DELETE denied to the agent role; partition detach permitted only to changeover_retention.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-log.ts",
+      "duration_ms": 146.22175000000016,
+      "clauses": [
+        {
+          "clause": "C-LOG.a1_separate_schema",
+          "status": "pass",
+          "note": "the access log lives in changeover_log, a schema the hold store does not share"
+        },
+        {
+          "clause": "C-LOG.seeded",
+          "status": "pass",
+          "note": "one row of this run's own, written to the primary, so every count below can be scoped to it"
+        },
+        {
+          "clause": "C-LOG.p2_hashed",
+          "status": "pass",
+          "note": "and the idempotency key reached the row as a 43-character HMAC, never as the value the caller passed"
+        },
+        {
+          "clause": "C-LOG.agent_can_insert",
+          "status": "pass",
+          "note": "changeover_agent can INSERT into the log — the control, without which the two denials below would pass against a role holding nothing"
+        },
+        {
+          "clause": "C-LOG.agent_can_select",
+          "status": "pass",
+          "note": "and it can SELECT, so it can read what it wrote"
+        },
+        {
+          "clause": "C-LOG.update_denied",
+          "status": "pass",
+          "note": "UPDATE on the log is denied to changeover_agent with 42501 — append-only is a grant, not a convention the code observes"
+        },
+        {
+          "clause": "C-LOG.delete_denied",
+          "status": "pass",
+          "note": "and so is DELETE"
+        },
+        {
+          "clause": "C-LOG.row_survives",
+          "status": "pass",
+          "note": "and the row is still there, still saying `ok` — the denials were denials and not silent no-ops"
+        },
+        {
+          "clause": "C-LOG.a1_retention_isolated",
+          "status": "pass",
+          "note": "changeover_retention — the only role that may DROP — cannot so much as name the hold table (42P01); it fails at the schema, before any table grant is consulted"
+        },
+        {
+          "clause": "C-LOG.detach_denied_to_agent",
+          "status": "pass",
+          "note": "changeover_agent cannot DETACH a partition — retention is a DROP and the capability lives in a role holding nothing else"
+        },
+        {
+          "clause": "C-LOG.detach_allowed_to_retention",
+          "status": "pass",
+          "note": "changeover_retention can — A3's retention is a DETACH and a DROP, which is not an UPDATE or a DELETE on a row and therefore does not violate append-only"
+        },
+        {
+          "clause": "C-LOG.detach_took_effect",
+          "status": "pass",
+          "note": "and the partition is genuinely no longer attached, read back from the catalogue"
+        },
+        {
+          "clause": "C-LOG.detach_restored",
+          "status": "pass",
+          "note": "the partition this clause created is dropped again, so a second run against the same database asserts the same thing"
+        },
+        {
+          "clause": "C-LOG.fail_closed",
+          "status": "pass",
+          "note": "a write verb whose log row cannot be stored throws AccessLogUnavailable and the verb fails CLOSED — never acting unlogged (AccessLogUnavailable)"
+        },
+        {
+          "clause": "C-LOG.fail_closed_no_row",
+          "status": "pass",
+          "note": "and no row was written, so the failure is honest in both directions"
+        },
+        {
+          "clause": "C-LOG.degrade_read",
+          "status": "pass",
+          "note": "a READ verb with a durable secondary degrades to it instead of failing the read (A2), and the row lands there"
+        },
+        {
+          "clause": "C-LOG.degrade_event",
+          "status": "pass",
+          "note": "and a degradation EVENT lands beside it naming the SQLSTATE, so a degradation is a fact rather than a gap (25006)"
+        },
+        {
+          "clause": "C-LOG.invocations_happened",
+          "status": "pass",
+          "note": "three invocations across the boundary — one refused, one granted, one refused again (404, 201, 400)"
+        },
+        {
+          "clause": "C-LOG.per_invocation",
+          "status": "unprovable",
+          "note": "the binding calls its access_log seam on exactly one path — the unknown-route error — and on none of the nine routes, so 0 of those three invocations reached it. The seam's own signature is {route, outcome, code}: it carries no agent_id and no principal_scope, both NOT NULL on changeover_log.access_log, so no conforming row could be written through it even if it were called. NO_ACCESS_LOG says why — A1-A4 are CORE-007's and packages/core/src/hmac.ts is unwritten, which also leaves the P2 epoch key unnamed",
+          "missing_path": "packages/core/src/hmac.ts"
+        }
+      ],
+      "reason": "C-LOG.per_invocation: the binding calls its access_log seam on exactly one path — the unknown-route error — and on none of the nine routes, so 0 of those three invocations reached it. The seam's own signature is {route, outcome, code}: it carries no agent_id and no principal_scope, both NOT NULL on changeover_log.access_log, so no conforming row could be written through it even if it were called. NO_ACCESS_LOG says why — A1-A4 are CORE-007's and packages/core/src/hmac.ts is unwritten, which also leaves the P2 epoch key unnamed",
+      "missing_path": "packages/core/src/hmac.ts"
+    },
+    {
+      "class": "C-USAGE",
+      "spec_row": "usage_policy present and honoured by the reference Agent.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-usage.ts",
+      "duration_ms": 133.10695899999973,
+      "clauses": [
+        {
+          "clause": "C-USAGE.present",
+          "status": "pass",
+          "note": "GET /.well-known/changeover carries usage_policy with 4 members"
+        },
+        {
+          "clause": "C-USAGE.required_members",
+          "status": "pass",
+          "note": "its three REQUIRED members are all there (redistribution, cache_max_age_ms, contact)"
+        },
+        {
+          "clause": "C-USAGE.validates",
+          "status": "pass",
+          "note": "the document carrying it validates against the frozen capability.schema.json, where usage_policy is additionalProperties: false and redistribution is a closed enum"
+        },
+        {
+          "clause": "C-USAGE.validates_control",
+          "status": "pass",
+          "note": "and a fourth redistribution value is rejected by that same validator, so the clause above is the schema binding and not the validator waving everything through"
+        },
+        {
+          "clause": "C-USAGE.redistribution_closed",
+          "status": "pass",
+          "note": "redistribution is one of the three the schema permits and this site publishes forbidden — the value §6.3 attaches its strongest MUST NOT to"
+        },
+        {
+          "clause": "C-USAGE.retention_bound_stated",
+          "status": "pass",
+          "note": "cache_max_age_ms is an integer of milliseconds (30000) — the bound §6.3 forbids an Agent to retain an Occasion beyond"
+        },
+        {
+          "clause": "C-USAGE.retention_bound_honoured_on_the_wire",
+          "status": "pass",
+          "note": "no response carrying an Occasion instructs a cache to keep it longer than the policy permits an Agent to (GET /occasions → max-age=30 · GET /occasions/{id} → max-age=30 · GET /.well-known/changeover (Profile 0, Occasions inline) → max-age=30)"
+        },
+        {
+          "clause": "C-USAGE.contact_accounted_for",
+          "status": "pass",
+          "note": "every email-shaped string in the served document is the operator address the site declares at usage_policy.contact (boxoffice@embassy.example), which is the accounting C-ABSENCE.4's canary is built on"
+        },
+        {
+          "clause": "C-USAGE.contact_control",
+          "status": "pass",
+          "note": "and that pattern does match an address, so the clause above is an accounting and not a regex that never fires"
+        },
+        {
+          "clause": "C-USAGE.no_other_personal_shape",
+          "status": "pass",
+          "note": "and the terms carry no E.164 string and no Luhn-valid digit run — the attribution text and the venue name are the two members an operator is most likely to put one in"
+        },
+        {
+          "clause": "C-USAGE.agent_honours",
+          "status": "unprovable",
+          "note": "§6.3's Usage rule binds an AGENT — MUST NOT persist, republish or serve to a third party an Occasion whose redistribution is forbidden, and MUST NOT retain one beyond cache_max_age_ms — and no Agent exists in this repository. The Server half is asserted above, on the document and on the wire; what an Agent does with a document it has already been given is not observable at the boundary that gave it, and an Agent written here could not falsify the claim",
+          "missing_path": "packages/agent"
+        }
+      ],
+      "reason": "C-USAGE.agent_honours: §6.3's Usage rule binds an AGENT — MUST NOT persist, republish or serve to a third party an Occasion whose redistribution is forbidden, and MUST NOT retain one beyond cache_max_age_ms — and no Agent exists in this repository. The Server half is asserted above, on the document and on the wire; what an Agent does with a document it has already been given is not observable at the boundary that gave it, and an Agent written here could not falsify the claim",
+      "missing_path": "packages/agent"
+    },
+    {
+      "class": "C-PROFILE0",
+      "spec_row": "The static file validates, serves from a venue-authorised origin, and hold verbs return 501.",
+      "status": "unprovable",
+      "binding": "http",
+      "source": "packages/conformance/src/classes/c-profile0.ts",
+      "duration_ms": 147.98941600000035,
+      "clauses": [
+        {
+          "clause": "C-PROFILE0.served",
+          "status": "pass",
+          "note": "the Profile 0 site answers its well-known path"
+        },
+        {
+          "clause": "C-PROFILE0.profile",
+          "status": "pass",
+          "note": "and publishes profile 0, which is what makes the rest of this class the right questions to ask"
+        },
+        {
+          "clause": "C-PROFILE0.occasions_inline",
+          "status": "pass",
+          "note": "the Occasions are in the file itself (7 of them), so the capability document plus the Occasions IS the static file an exhibitor publishes — not a pointer to a service they would have to run"
+        },
+        {
+          "clause": "C-PROFILE0.validates",
+          "status": "pass",
+          "note": "the file validates against the frozen capability.schema.json"
+        },
+        {
+          "clause": "C-PROFILE0.occasions_validate",
+          "status": "pass",
+          "note": "and every one of the 7 Occasions inside it validates against occasion.schema.json — a wrapper that validates over contents that do not is a file an Agent cannot read"
+        },
+        {
+          "clause": "C-PROFILE0.names_authorised_origin",
+          "status": "pass",
+          "note": "the file names its venue origin (https://embassy.example) and the origins authorised under O3 (https://embassy.example)"
+        },
+        {
+          "clause": "C-PROFILE0.urls_same_origin",
+          "status": "pass",
+          "note": "every absolute URL in the static file is same-origin with venue.origin or a delegated origin under O1, except the 1 carried by the off-origin fixture this bench plants on purpose"
+        },
+        {
+          "clause": "C-PROFILE0.hold_verbs_501",
+          "status": "pass",
+          "note": "every hold verb answers 501 (hold_seats → 501 profile_not_supported · get_hold → 501 profile_not_supported · release_hold → 501 profile_not_supported · hand_off → 501 profile_not_supported · revoke → 501 profile_not_supported)"
+        },
+        {
+          "clause": "C-PROFILE0.hold_verbs_typed",
+          "status": "pass",
+          "note": "and every one of them carries the code profile_not_supported rather than a bare status, so an Agent can switch on it and fall back to book_url without parsing prose"
+        },
+        {
+          "clause": "C-PROFILE0.every_hold_verb_covered",
+          "status": "pass",
+          "note": "and the 5 routes the binding marks as hold verbs (hold_seats, get_hold, release_hold, hand_off, revoke) are exactly the ones put through above — a route added to that table and not to this class would be an untested surface"
+        },
+        {
+          "clause": "C-PROFILE0.wrote_nothing",
+          "status": "pass",
+          "note": "and the hold store is untouched afterwards — a 501 returned after taking the seats would have passed every clause above"
+        },
+        {
+          "clause": "C-PROFILE0.no_idempotency_record",
+          "status": "pass",
+          "note": "and no idempotency record was written either: G1 puts profile_not_supported first, before the envelope that would have recorded the attempt"
+        },
+        {
+          "clause": "C-PROFILE0.reads_still_answer",
+          "status": "pass",
+          "note": "the read surface still answers at Profile 0 (200, 7 Occasions) — the profile publishes rather than holds, and a site that refused reads too would be conformant with nothing"
+        },
+        {
+          "clause": "C-PROFILE0.occasion_readable",
+          "status": "pass",
+          "note": "and one Occasion reads back on its own path, which is the surface an Agent walks before it discovers there is nothing to hold"
+        },
+        {
+          "clause": "C-PROFILE0.served_from_venue_origin",
+          "status": "unprovable",
+          "note": "\"serves from a venue-authorised origin\" is a property of the fetch, and both servers on this bench bind to 127.0.0.1 on an ephemeral port: the document above arrived from http://127.0.0.1:53196, which is same-origin with nothing the file names. What the file DECLARES is asserted in names_authorised_origin and urls_same_origin; what it was SERVED from cannot be observed until a run has a venue-controlled host to fetch from, and a bench that pointed venue.origin at its own loopback port would prove only that a string can be edited"
+        }
+      ],
+      "reason": "C-PROFILE0.served_from_venue_origin: \"serves from a venue-authorised origin\" is a property of the fetch, and both servers on this bench bind to 127.0.0.1 on an ephemeral port: the document above arrived from http://127.0.0.1:53196, which is same-origin with nothing the file names. What the file DECLARES is asserted in names_authorised_origin and urls_same_origin; what it was SERVED from cannot be observed until a run has a venue-controlled host to fetch from, and a bench that pointed venue.origin at its own loopback port would prove only that a string can be edited"
+    }
+  ],
+  "floor_violations": {
+    "value": 0,
+    "basis": "observed",
+    "measured_by": "floor observation",
+    "note": "granted 4 distinct Holds of 4 attempted, at this Server's own floor, watched for 1000ms, counted over prin_conf_wellington and prin_conf_auckland alone so a neighbour's rows are not this run's number"
+  },
+  "operator_overrides": {
+    "value": 0,
+    "basis": "observed",
+    "measured_by": "floor observation",
+    "note": "granted 4 distinct Holds of 4 attempted, at this Server's own floor, watched for 1000ms, counted over prin_conf_wellington and prin_conf_auckland alone so a neighbour's rows are not this run's number — nothing here induces an Override; the number is what the operator did during the window"
+  },
+  "release_latency_ms": {
+    "value": {
+      "n": 20,
+      "p50": 8.62,
+      "p95": 12.34,
+      "max": 14.72,
+      "substrate": "pg · release then re-grant, sequential"
+    },
+    "basis": "observed",
+    "measured_by": "C-RELEASE",
+    "note": "release → the same seats granted to a DIFFERENT principal, measured across the boundary rather than inside it"
+  },
+  "oversell_events": {
+    "value": 0,
+    "basis": "observed",
+    "measured_by": "C-ATOMIC",
+    "note": "physical seats carrying more than one occupying row after 200 contenders raced a 100-seat house across 2 listings, on pg with 32 connections"
+  },
+  "harness": {
+    "commit": "ca90fa895023bd1641a3b2411061964eab93224d",
+    "dirty": false,
+    "node": "v24.13.1",
+    "driver": "pg",
+    "concurrent": true
+  },
+  "summary": {
+    "pass": 10,
+    "fail": 0,
+    "unprovable": 14,
+    "exit_code": 2,
+    "line": "24 classes: 10 pass · 0 fail · 14 unprovable"
+  }
+}
