@@ -183,6 +183,65 @@ export function occasionSeedFromDocument(
   };
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Move a seed row's instants forward by whole weeks until its sales cutoff sits
+ * at least `marginMs` beyond `now`. The document is not touched.
+ *
+ * The golden Occasions are dated screenings — the Embassy's cutoff is
+ * 2026-08-29T19:15+12:00 — and G1 step 6 compares `sales_cutoff_at` with the
+ * store's live clock, so from 29 August 2026 every hold against that fixture
+ * was refused as `past_sales_cutoff` before it reached whatever a proof meant to
+ * test. A fixture that expires is a proof that stops proving on a date nobody
+ * wrote down, and this is the repair: the ROW moves, the DOCUMENT stays exactly
+ * as published, so the etag minted from it still reproduces the frozen one that
+ * EXPECTED.md and SPEC.md carry.
+ *
+ * Whole weeks keep the weekday the fixture is named for. `local_wall` moves
+ * with `starts_at` and `local_wall_offset` is kept, so the three stay one
+ * instant; whether that offset is still the venue's in a later month is a
+ * question about the document, which C-CLOCK asks, and not about this row.
+ * A row whose cutoff is already far enough ahead comes back unchanged, and a
+ * row with no cutoff is measured by its `starts_at` instead.
+ */
+export function seedInFuture(
+  seed: OccasionSeed,
+  now: Date = new Date(),
+  marginMs: number = 24 * 60 * 60 * 1000,
+): OccasionSeed {
+  const anchor = Date.parse(seed.sales_cutoff_at ?? seed.starts_at);
+  if (Number.isNaN(anchor)) throw new Error(`seedInFuture: ${seed.occasion_id} has no parseable instant`);
+  const weeks = Math.ceil((now.getTime() + marginMs - anchor) / WEEK_MS);
+  if (weeks <= 0) return seed;
+  const days = weeks * 7;
+  return {
+    ...seed,
+    starts_at: shiftRfc3339(seed.starts_at, days),
+    local_wall: shiftWall(seed.local_wall, days),
+    sales_cutoff_at: seed.sales_cutoff_at === null ? null : shiftRfc3339(seed.sales_cutoff_at, days),
+  };
+}
+
+/** Add whole days to an RFC 3339 timestamp, keeping its offset and its precision. */
+function shiftRfc3339(value: string, days: number): string {
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (m === null) throw new Error(`shiftRfc3339: not an RFC 3339 timestamp: ${value}`);
+  const [, wall, fraction = "", offset] = m;
+  // Shift the wall clock and reattach the same offset: a fixed offset means the
+  // instant moves by exactly `days`, and the text keeps the shape it had.
+  return `${shiftWall(wall, days)}${fraction}${offset}`;
+}
+
+/** Add whole days to a wall-clock string (`YYYY-MM-DDTHH:MM` or with seconds), keeping its precision. */
+function shiftWall(value: string, days: number): string {
+  const seconds = /T\d{2}:\d{2}:\d{2}$/.test(value);
+  const ms = Date.parse(value + "Z");
+  if (Number.isNaN(ms)) throw new Error(`shiftWall: not a wall-clock time: ${value}`);
+  const iso = new Date(ms + days * 24 * 60 * 60 * 1000).toISOString();
+  return seconds ? iso.slice(0, 19) : iso.slice(0, 16);
+}
+
 // ---------------------------------------------------------------------------
 // The two standing estates
 // ---------------------------------------------------------------------------

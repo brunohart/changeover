@@ -56,7 +56,7 @@ import { containsUri } from "@changeover/core/principal.ts";
 import { PROSE_BYTES_PER_RESPONSE, fitToProseBudget, proseBytes } from "@changeover/http/occasions.ts";
 import { REFUSAL_STATUS, isRefusal, refuse } from "@changeover/schema/refusal.ts";
 import type { Db } from "@changeover/store/db.ts";
-import { availableSeatIds, occasionSeedFromDocument, seedEstate } from "@changeover/store/fixtures.ts";
+import { availableSeatIds, occasionSeedFromDocument, seedEstate, seedInFuture } from "@changeover/store/fixtures.ts";
 import { migrate, resetHoldStore } from "@changeover/store/migrate.ts";
 
 import type { Check } from "./poison.ts";
@@ -429,7 +429,9 @@ export async function strictBoundarySurvivesPoison(
 
   await migrate(db);
   await resetHoldStore(db);
-  const seeds = cases.map((c) => occasionSeedFromDocument(c.poisoned, { cluster: GOLDEN_CLUSTER }));
+  // The rows move forward to a week the clock has not reached; the documents,
+  // and so the etags, do not. See seedInFuture.
+  const seeds = cases.map((c) => seedInFuture(occasionSeedFromDocument(c.poisoned, { cluster: GOLDEN_CLUSTER })));
   await seedEstate(db, { name: "c-inject-poisoned", occasions: seeds });
 
   const seedOf = (occasion_id: string) => {
