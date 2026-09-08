@@ -37,13 +37,13 @@ cd "$(dirname "$0")/.." || exit 2
 node --input-type=module -e '
 import { openDb } from "./packages/store/src/db.ts";
 import { migrate } from "./packages/store/src/migrate.ts";
-import { bootBudgetBench } from "./packages/conformance/src/budget/estate.ts";
+import { bootBudgetBench, estateIntact, privateBenchUrl } from "./packages/conformance/src/budget/estate.ts";
 import { parsePublishedTable, parityChecks, SectionNotFound, SPEC_PATH } from "./packages/conformance/src/budget/published.ts";
 import { renderObservations } from "./packages/conformance/src/budget/observed.ts";
 import { C_BUDGET, sequential as budgetSequential } from "./packages/conformance/src/budget/c-budget.ts";
 import { C_FANOUT, sequential as fanoutSequential } from "./packages/conformance/src/budget/c-fanout.ts";
 
-let fail = 0, pass = 0;
+let fail = 0, pass = 0, estateGone = false;
 const ok  = (m) => { console.log("ok — " + m); pass++; };
 const bad = (m) => { console.log("FAIL — " + m); fail = 1; };
 const record = (checks) => { for (const c of checks) (c.held ? ok : bad)(c.statement); };
@@ -69,7 +69,27 @@ if (table.size === 0) {
 }
 ok(`section 2.5 parsed from ${SPEC_PATH.split("/").slice(-1)[0]}: ${table.size} published members`);
 
-const db = await openDb();
+// Where a real Postgres is configured, this bench takes a database of its own on
+// it. PGlite already hands every openDb() a private cluster; a shared server does
+// not, and every bench in this repository truncates the occasion table at setup,
+// so two proofs against one database delete each others fixtures. Measured: one
+// run in three came back with every grant refused occasion_not_found.
+const base = process.env.CHANGEOVER_PG_URL;
+let db, url;
+try {
+  url = base ? await privateBenchUrl(base, "changeover_budget_bench") : undefined;
+  db = await openDb(url ? { url } : {});
+  await db.query("select 1");
+} catch (err) {
+  // A configured server that does not answer is a thing we could not reach, not
+  // a boundary that misbehaved. Exit 2, never 1.
+  console.log("cannot prove — CHANGEOVER_PG_URL is set and the server did not answer: " +
+    String(err && err.message ? err.message : err));
+  console.log("  to make it provable: start it, or unset CHANGEOVER_PG_URL to run against PGlite");
+  if (db) await db.close().catch(() => {});
+  process.exit(2);
+}
+if (url) ok(`the bench holds its own database on the configured server: ${new URL(url).pathname.slice(1)}`);
 const observations = [];
 let trials = 0;
 
@@ -99,7 +119,25 @@ try {
 } catch (err) {
   bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 4).join(" | ") : err));
 } finally {
+  // Asked BEFORE the handle closes, and only consulted when something failed:
+  // a neighbouring proof holding the same CHANGEOVER_PG_URL runs
+  // "truncate occasion cascade" at its own bench setup, which deletes the
+  // fixtures these assertions were made against. A run whose estate was taken
+  // out from under it did not observe a violation.
+  try { estateGone = !(await estateIntact(db)); } catch { estateGone = true; }
   await db.close();
+}
+
+if (fail && estateGone) {
+  console.log("");
+  console.log("cannot prove — the seeded estate is no longer in the store, so every refusal above is");
+  console.log("                occasion_not_found and none of it is a statement about the boundary.");
+  console.log("                A concurrent holder of this CHANGEOVER_PG_URL ran resetEstate, which is");
+  console.log("                truncate occasion cascade, while these assertions were running.");
+  console.log("  to make it provable:");
+  console.log("    run this script with no other proof running against the same database, or");
+  console.log("    unset CHANGEOVER_PG_URL to run it against a private PGlite cluster");
+  process.exit(2);
 }
 
 console.log("");

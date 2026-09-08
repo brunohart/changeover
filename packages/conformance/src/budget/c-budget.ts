@@ -51,14 +51,14 @@ import {
   grantsInTrailingHour,
   heldSeatsForPlatform,
   heldSeatsForPrincipal,
-  holdRows,
+  holdRowsFor,
   household,
   liveHoldsForPrincipal,
   refusals,
   release,
   row,
-  seatRows,
-  slotRows,
+  seatRowsFor,
+  slotRowsFor,
 } from "./estate.ts";
 
 export const C_BUDGET = {
@@ -133,9 +133,11 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
     );
     checks.push(
       assert(
-        (await holdRows(bench.db)) === max && (await slotRows(bench.db)) === max && (await seatRows(bench.db)) === max,
-        `X1 · the store carries exactly ${max} holds, ${max} slots and ${max} seat rows — the refusal wrote nothing`,
-        `X1 · store carries ${await holdRows(bench.db)} holds, ${await slotRows(bench.db)} slots, ${await seatRows(bench.db)} seat rows`,
+        (await holdRowsFor(bench.db, who)) === max &&
+          (await slotRowsFor(bench.db, who)) === max &&
+          (await seatRowsFor(bench.db, who)) === max,
+        `X1 · this principal carries exactly ${max} holds, ${max} slots and ${max} seat rows — the refusal wrote nothing`,
+        `X1 · this principal carries ${await holdRowsFor(bench.db, who)} holds, ${await slotRowsFor(bench.db, who)} slots, ${await seatRowsFor(bench.db, who)} seat rows`,
       ),
     );
 
@@ -313,9 +315,9 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
     );
     checks.push(
       assert(
-        (await holdRows(bench.db)) === 1,
-        "X4 · exactly one hold row exists — every refusal above wrote nothing",
-        `X4 · ${await holdRows(bench.db)} hold rows exist, expected 1`,
+        (await holdRowsFor(bench.db, who)) === 1,
+        "X4 · this principal carries exactly one hold row — every refusal above wrote nothing",
+        `X4 · this principal carries ${await holdRowsFor(bench.db, who)} hold rows, expected 1`,
       ),
     );
 

@@ -24,7 +24,7 @@
  */
 
 import type { Db, Row } from "@changeover/store/db.ts";
-import { sqlstate } from "@changeover/store/db.ts";
+import { openDb, sqlstate } from "@changeover/store/db.ts";
 import type { Estate, OccasionSeed } from "@changeover/store/fixtures.ts";
 import { seatGrid, seedEstate } from "@changeover/store/fixtures.ts";
 import { resetEstate, resetHoldStore } from "@changeover/store/migrate.ts";
@@ -123,6 +123,61 @@ export interface Bench {
 }
 
 /**
+ * A private database on the shared server, so a neighbour cannot truncate this
+ * bench out from under it.
+ *
+ * Measured, and the reason this function exists: with two agents pointing at one
+ * `CHANGEOVER_PG_URL`, one run in three of this item's assertions came back with
+ * every grant refused `occasion_not_found` and every count at zero — because
+ * `resetEstate` is `truncate occasion … cascade`, every bench in the repository
+ * calls it at setup, and against one database those calls delete each other's
+ * fixtures. A `40P01` on the truncate itself was also observed. None of it was a
+ * statement about the boundary.
+ *
+ * PGlite hands every `openDb()` a private cluster and that is what makes the
+ * default path deterministic. This gives the concurrency path the same property
+ * without giving up the thing only a real Postgres has: **more than one
+ * connection**. The database is created once and reused, so the second run costs
+ * a `pg_database` lookup.
+ *
+ * Where the credential cannot create a database this returns the URL it was
+ * given, unchanged. That is strictly no worse than before, and the caller still
+ * has {@link estateIntact} to tell a foreign truncate from a defect.
+ */
+export async function privateBenchUrl(baseUrl: string, name: string): Promise<string> {
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(name)) {
+    throw new Error(`privateBenchUrl: ${name} is not a safe database identifier`);
+  }
+  const admin = await openDb({ url: baseUrl });
+  try {
+    const exists = await admin.query<{ n: string } & Row>(
+      "select count(*)::text as n from pg_database where datname = $1",
+      [name],
+    );
+    if (Number(exists.rows[0]?.n ?? 0) === 0) {
+      try {
+        await admin.query(`create database ${name}`);
+      } catch (err) {
+        // 42P04 duplicate_database: a concurrent run of this same bench won the
+        // race, which is the outcome we wanted. 42501 insufficient_privilege:
+        // this credential may not create one, so stay where we are.
+        const state = sqlstate(err);
+        if (state === "42501") return baseUrl;
+        if (state !== "42P04") throw err;
+      }
+    }
+  } catch (err) {
+    if (sqlstate(err) === "42501") return baseUrl;
+    throw err;
+  } finally {
+    await admin.close();
+  }
+  const url = new URL(baseUrl);
+  url.pathname = `/${name}`;
+  return url.toString();
+}
+
+/**
  * Seed the bench at the **published** policy.
  *
  * `principalBudgets()` defaults to `HOLD_POLICY_PUBLISHED` and the guard is
@@ -140,6 +195,32 @@ export async function bootBudgetBench(db: Db): Promise<Bench> {
 /** Between scenarios. The estate stays; the holds do not. */
 export async function freshHolds(db: Db): Promise<void> {
   await resetHoldStore(db);
+}
+
+/**
+ * Is the estate this bench seeded still in the store?
+ *
+ * Measured, not hypothetical: `resetEstate` is `truncate occasion … cascade`,
+ * every bench in this repository calls it, and against one shared
+ * `CHANGEOVER_PG_URL` two proof scripts running at the same time delete each
+ * other's Occasions mid-run. When that happens every grant here comes back
+ * `occasion_not_found` and every assertion below reports a boundary that is
+ * behaving perfectly as broken.
+ *
+ * **That is the defect class this repository exists to catch, and reporting it
+ * as a failure would be committing it.** A proof whose fixtures were deleted by
+ * a neighbour did not observe a violation; it could not reach the thing under
+ * test, which is exit 2. The caller asks this question before deciding, so a
+ * red run is only ever reported red when the estate it asserted against was
+ * still there to assert against.
+ */
+export async function estateIntact(db: Db): Promise<boolean> {
+  const ids = BUDGET_ESTATE.occasions.map((o) => o.occasion_id);
+  const r = await db.query<{ n: string } & Row>(
+    "select count(*)::text as n from occasion where occasion_id = any($1::text[])",
+    [ids],
+  );
+  return Number(r.rows[0]?.n ?? 0) === ids.length;
 }
 
 /** Every way a grant can end. A refusal is an answer; a SQLSTATE is a design failure. */
@@ -222,14 +303,43 @@ async function count(db: Db, sql: string, params: readonly unknown[] = []): Prom
   return Number(r.rows[0]?.n ?? 0);
 }
 
-export const holdRows = (db: Db): Promise<number> =>
-  count(db, "select count(*)::text as n from hold");
+/*
+ * Every count below is scoped to the principal that made the holds, and none of
+ * them is a bare `count(*) from hold`.
+ *
+ * §12 of the build contract: PGlite hands every `openDb()` its own cluster and a
+ * real Postgres does not, so "the store contains exactly what I put in it" is
+ * true by accident on the default path. Measured here: a global hold count
+ * reported `2 rows in the store` for a scenario that had written one, because a
+ * second agent was running its own proofs against the same `CHANGEOVER_PG_URL`
+ * at the same time. The assertion was right, the counting was not, and a proof
+ * that sends someone hunting a race in correct code is the worst artefact this
+ * repository can produce. Each scenario uses its own `principal_scope`, so
+ * scoping the count makes it true of a shared store and of a private one.
+ */
 
-export const slotRows = (db: Db): Promise<number> =>
-  count(db, "select count(*)::text as n from hold_slot");
+export const holdRowsFor = (db: Db, who: Household): Promise<number> =>
+  count(
+    db,
+    "select count(*)::text as n from hold where agent_id = $1 and principal_scope = $2",
+    [who.agent_id, who.principal_scope],
+  );
 
-export const seatRows = (db: Db): Promise<number> =>
-  count(db, "select count(*)::text as n from hold_seat");
+export const slotRowsFor = (db: Db, who: Household): Promise<number> =>
+  count(
+    db,
+    "select count(*)::text as n from hold_slot where agent_id = $1 and principal_scope = $2",
+    [who.agent_id, who.principal_scope],
+  );
+
+export const seatRowsFor = (db: Db, who: Household): Promise<number> =>
+  count(
+    db,
+    `select count(*)::text as n
+       from hold_seat s join hold h on h.hold_id = s.hold_id
+      where h.agent_id = $1 and h.principal_scope = $2`,
+    [who.agent_id, who.principal_scope],
+  );
 
 /**
  * Seats a principal is holding on one showtime, counted the way X4 counts them.

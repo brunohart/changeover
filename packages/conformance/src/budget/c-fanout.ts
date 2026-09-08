@@ -32,7 +32,7 @@ import {
   faults,
   freshHolds,
   grants,
-  holdRows,
+  holdRowsFor,
   household,
   liveHoldsInCluster,
   refusals,
@@ -102,9 +102,9 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
     );
     checks.push(
       assert(
-        (await holdRows(bench.db)) === 1,
-        "X2 · exactly one hold row exists — the refused grant did not commit",
-        `X2 · ${await holdRows(bench.db)} hold rows exist, expected 1`,
+        (await holdRowsFor(bench.db, who)) === 1,
+        "X2 · this principal carries exactly one hold row — the refused grant did not commit",
+        `X2 · this principal carries ${await holdRowsFor(bench.db, who)} hold rows, expected 1`,
       ),
     );
 
@@ -112,7 +112,7 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
       rule: "X2",
       member: "max_live_holds_per_cluster",
       published: `${statedAs(table, "max_live_holds_per_cluster")} (= ${max})`,
-      observed: `${observed} live holds in the cluster`,
+      observed: `${observed} live hold${observed === 1 ? "" : "s"} in the cluster`,
       refused_with: refusedWith(sunday),
       concurrent: false,
       counting: `live Holds one principal carries in one (origin, cluster), by the publisher's label via the hold_cluster_live index`,
@@ -139,9 +139,10 @@ export async function sequential(bench: Bench, table: PublishedTable): Promise<C
     );
     checks.push(
       assert(
-        mine === max && theirs === max && (await holdRows(bench.db)) === 2,
-        `X0 · each principal carries ${max} live hold in the cluster and the store carries two — one Wellington household cannot lock out every other customer of that platform`,
-        `X0 · ${mine} and ${theirs} live holds under two principal scopes, ${await holdRows(bench.db)} rows`,
+        mine === max && theirs === max &&
+          (await holdRowsFor(bench.db, wellington)) === 1 && (await holdRowsFor(bench.db, auckland)) === 1,
+        `X0 · each principal carries ${max} live hold in the cluster and one row of its own — one Wellington household cannot lock out every other customer of that platform`,
+        `X0 · ${mine} and ${theirs} live holds under two principal scopes`,
       ),
     );
 
@@ -221,9 +222,9 @@ export async function concurrent(bench: Bench, table: PublishedTable): Promise<C
     );
     checks.push(
       assert(
-        observed === max && (await holdRows(bench.db)) === max,
-        `X2 · exactly ${max} hold row survived the race`,
-        `X2 · ${observed} live in the cluster and ${await holdRows(bench.db)} rows in the store`,
+        observed === max && (await holdRowsFor(bench.db, who)) === max,
+        `X2 · exactly ${max} hold row of this principal survived the race`,
+        `X2 · ${observed} live in the cluster and ${await holdRowsFor(bench.db, who)} rows under this principal`,
       ),
     );
     checks.push(
@@ -238,7 +239,7 @@ export async function concurrent(bench: Bench, table: PublishedTable): Promise<C
       rule: "X2",
       member: "max_live_holds_per_cluster",
       published: `${statedAs(table, "max_live_holds_per_cluster")} (= ${max})`,
-      observed: `${observed} live holds from 2 simultaneous callers`,
+      observed: `${observed} live hold${observed === 1 ? "" : "s"} from 2 simultaneous callers`,
       refused_with: refusedWith(outcomes.find((o) => o.kind === "refusal")),
       concurrent: true,
       counting: "live Holds one principal carries in one (origin, cluster), under the hold_cluster_live partial unique index",

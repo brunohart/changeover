@@ -37,7 +37,7 @@ import {
   etagFor,
 } from "./estate.ts";
 import type { Contender, Outcome } from "./contend.ts";
-import { startSampler } from "./sampler.ts";
+import { ServerVanished, startSampler } from "./sampler.ts";
 import {
   AGENT_ID,
   census,
@@ -175,6 +175,8 @@ export async function raceHouse(
   const outcomes: Outcome[] = race.outcomes;
   const t = tally(outcomes);
   const c = await census(db);
+
+  if (t.unreachable > 0) throw new ServerVanished(".1");
 
   reportOverlap(report, ".1", race, profile.trials);
   reportPeak(report, ".1", peak, profile);
@@ -340,6 +342,8 @@ export async function raceExpiryBoundary(
   const outcomes: Outcome[] = race.outcomes;
   const t = tally(outcomes);
   const c = await census(db);
+
+  if (t.unreachable > 0) throw new ServerVanished(".2");
 
   reportOverlap(report, ".2", race, profile.trials);
   reportPeak(report, ".2", peak, profile);

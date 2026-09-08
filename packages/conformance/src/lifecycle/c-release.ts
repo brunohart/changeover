@@ -48,7 +48,7 @@ import type { HoldState } from "@changeover/core/derived.ts";
 import type { Check, ClassResult } from "./contract.ts";
 import { assert, broke } from "./contract.ts";
 import type { LifecycleBench } from "./bench.ts";
-import { etagFor, expiredInStore, lifecycleBench, lifecycleOccasion, occupancyOf, runId, sleep } from "./bench.ts";
+import { ESTATE_VANISHED, estateIntact, etagFor, expiredInStore, lifecycleBench, lifecycleOccasion, occupancyOf, runId, sleep } from "./bench.ts";
 import { formatPercentiles, percentiles, timed } from "./latency.ts";
 
 const AGENT = "agt_t003release";
@@ -76,6 +76,7 @@ export async function cRelease(options: ReleaseOptions = {}): Promise<ClassResul
     return { id: "C-RELEASE", checks: [], notes, unprovable: "the store did not answer: " + message(err) };
   }
 
+  let vanished = false;
   try {
     const seats = seatPairs(20);
     let next = 0;
@@ -228,11 +229,17 @@ export async function cRelease(options: ReleaseOptions = {}): Promise<ClassResul
       "release latency produced " + latency.n + " usable samples of " + trials,
     ));
   } catch (err) {
-    checks.push(broke("the scenario did not complete: " + message(err)));
+    // §12 first, before anything is called a defect: on a shared store another
+    // process's reset takes the Occasion, and every downstream symptom then
+    // looks like a boundary failure. A missing Occasion is cannot-prove; a
+    // missing row under a standing Occasion is a failure.
+    vanished = !(await estateIntact(b.db, b.estate.occasions.map((o) => o.occasion_id)));
+    if (!vanished) checks.push(broke("the scenario did not complete: " + message(err)));
   } finally {
     await b.close();
   }
 
+  if (vanished) return { id: "C-RELEASE", checks: [], notes, unprovable: ESTATE_VANISHED };
   return { id: "C-RELEASE", checks, notes };
 }
 

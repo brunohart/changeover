@@ -34,7 +34,7 @@ cd "$(dirname "$0")/.." || exit 2
 
 node --input-type=module -e '
 import { CannotProve, EXIT_CANNOT_PROVE } from "./packages/store/src/db.ts";
-import { openRaceStore } from "./packages/conformance/src/atomic/sampler.ts";
+import { ServerVanished, isUnreachable, openLiveRaceStore } from "./packages/conformance/src/atomic/sampler.ts";
 import { C_ATOMIC_PROFILE, profileLines } from "./packages/conformance/src/atomic/profile.ts";
 import {
   allOrNothing,
@@ -71,7 +71,7 @@ try {
   // which is why the profile states it rather than leaving it to a default.
   // Tagged with an application_name so the sampler in .1 and .2 counts THIS
   // harness'"'"'s backends and not whatever else is on the shared database.
-  db = await openRaceStore(C_ATOMIC_PROFILE.pool_size);
+  db = await openLiveRaceStore(C_ATOMIC_PROFILE.pool_size);
 } catch (err) {
   remedy("the store did not open: " + String(err && err.message ? err.message : err));
   process.exit(EXIT_CANNOT_PROVE);
@@ -114,6 +114,16 @@ try {
     remedy(err.message);
     console.log(`PASS=${fail ? 0 : pass}`);
     await db.close();
+    process.exit(EXIT_CANNOT_PROVE);
+  }
+  // "We could not reach your server" is never "your server violated the floor".
+  // The container this suite runs against is started with --rm; when it goes
+  // away mid-race every contender returns ECONNREFUSED, and reporting that as
+  // an oversell would send someone hunting a race in correct code.
+  if (err instanceof ServerVanished || isUnreachable(err)) {
+    remedy(err instanceof ServerVanished ? err.message : "the store stopped answering: " + String(err && err.message ? err.message : err));
+    console.log(`PASS=${fail ? 0 : pass}`);
+    await db.close().catch(() => {});
     process.exit(EXIT_CANNOT_PROVE);
   }
   report.bad("unexpected — " + String(err && err.stack ? err.stack.split("\n").slice(0, 5).join(" | ") : err));

@@ -24,7 +24,14 @@ import { TOOLS } from "@changeover/mcp/tools.ts";
 import type { Body, SettlementCall } from "./bodies.ts";
 import { CAPABILITY_LABEL, POISON, httpBodies, mcpBodies } from "./bodies.ts";
 import type { Db } from "@changeover/store/db.ts";
-import { KILL_TESTS, nameHits, physicalNames, runKillTest } from "./grants.ts";
+import {
+  KILL_TESTS,
+  NEGATIVE_CONTROLS,
+  loginRole,
+  nameHits,
+  physicalNames,
+  runKillTest,
+} from "./grants.ts";
 import { DOCUMENT_SCHEMAS, declaredMembers, setEquality } from "./manifest.ts";
 import { SETTLEMENT_SURFACE, valueHits } from "./patterns.ts";
 
@@ -160,6 +167,26 @@ export async function grantClauses(db: Db): Promise<Clause[]> {
     } else {
       out.push(broke(`C-ABSENCE.3/${test.id}`, `raised [${outcome.sqlstate ?? "no SQLSTATE"}] where ${expected} was due${outcome.note ? " — " + outcome.note : ""}`));
     }
+  }
+
+  // The control. Without it, eleven denials are eleven denials for reasons
+  // unknown: a role that never switched, a statement a constraint stopped first
+  // and a grant doing its job are indistinguishable in the output above.
+  const login = await loginRole(db);
+  for (const id of NEGATIVE_CONTROLS) {
+    const test = KILL_TESTS.find((t) => t.id === id)!;
+    const outcome = await runKillTest(db, { ...test, role: login });
+    out.push(
+      outcome.allowed
+        ? held(
+            `C-ABSENCE.3/control_${id}`,
+            `the SAME statement was PERMITTED to the login role ${login} and rolled back — so the denial above is the grant, not a role that never switched, a typo or a constraint arriving first`,
+          )
+        : broke(
+            `C-ABSENCE.3/control_${id}`,
+            `the control failed: ${login} owns every table and must be able to run this, but it raised [${outcome.sqlstate ?? "no SQLSTATE"}]${outcome.note ? " — " + outcome.note : ""}. Until this holds, every denial above is unexplained rather than proven`,
+          ),
+    );
   }
 
   const names = await physicalNames(db);

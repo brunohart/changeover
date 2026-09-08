@@ -60,16 +60,24 @@ export const KILL_TESTS: readonly KillTest[] = Object.freeze([
   {
     id: "insert_occasion",
     role: "changeover_agent",
-    sql: "insert into occasion (occasion_id) values ('occ_kill_test')",
+    sql: `insert into occasion (occasion_id, revision, etag, origin, source, showtime_id,
+                          seating, capacity, availability_mode, starts_at, local_wall, local_wall_offset)
+          values ('occ_kill_test', 1, '1:0123456789012345678901234567890123456789012',
+                  'https://kill.invalid', 'kill_test', 'occ_kill_test',
+                  'allocated', 1, 'seat_map', now(), '2026-01-01T00:00', '+00:00')`,
     why: "W3 — the estate is the exhibitor's system of record; a boundary that can write it can manufacture the availability it then reports",
     expect: SQLSTATE.insufficient_privilege,
+    expect_why:
+      "every NOT NULL column is supplied and every CHECK is satisfied, so this row would genuinely land if the grant allowed it — an abbreviated INSERT would raise 23502 under a role that had the privilege, and a kill test that a constraint would have stopped anyway asserts nothing about the grant",
   },
   {
     id: "insert_occasion_seat",
     role: "changeover_agent",
-    sql: "insert into occasion_seat (occasion_id, seat_id) values ('occ_kill_test', 'A:1')",
+    sql: "insert into occasion_seat (occasion_id, seat_id, status) values ('occ_kill_test', 'A:1', 'available')",
     why: "W3 — the same, one level down: the seat inventory is not the boundary's to invent",
     expect: SQLSTATE.insufficient_privilege,
+    expect_why:
+      "a foreign key to occasion stands behind the grant here and cannot be satisfied without first committing the row the previous attempt is forbidden to write, so this one is NOT used as a negative control — but 42501 is still the only passing answer, and a 23503 arriving in its place is reported as a failure rather than quietly accepted as 'denied anyway'",
   },
   {
     id: "update_occasion",
@@ -137,6 +145,35 @@ export const KILL_TESTS: readonly KillTest[] = Object.freeze([
     expect_why: "the same schema-level closure: a name that never resolves is a stronger denial than one that resolves and is refused",
   },
 ]);
+
+/**
+ * The negative control, and the reason this class has one.
+ *
+ * A kill test that can only ever report "denied" is not evidence. Every one of
+ * the eleven attempts above would also report denied if `SET LOCAL ROLE` were
+ * silently ignored, if the statement were mistyped into a syntax error, or if a
+ * NOT NULL column stopped the row before any privilege was consulted — and each
+ * of those would read, in the output, exactly like a grant doing its job.
+ *
+ * So three of the attempts are re-run **under the cluster's own login role**,
+ * which owns every table, and each MUST be permitted. That is the assertion
+ * that gives the other eleven their meaning: the harness is demonstrably able
+ * to see a statement go through, so a denial is the grant and not the harness.
+ * Both are rolled back; nothing is committed under either role.
+ *
+ * `insert_occasion_seat` is deliberately not among them — see its `expect_why`.
+ */
+export const NEGATIVE_CONTROLS: readonly string[] = Object.freeze([
+  "insert_occasion",
+  "update_occasion",
+  "delete_hold",
+]);
+
+/** The role the connection authenticated as: the one role that must be able to write. */
+export async function loginRole(db: Db): Promise<string> {
+  const r = await db.query<{ u: string }>("select current_user as u");
+  return r.rows[0]?.u ?? "";
+}
 
 /** Thrown to force a rollback when a statement that should have been denied succeeded. */
 const ROLLBACK_SENTINEL = "changeover:c-absence:rollback";

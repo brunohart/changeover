@@ -24,6 +24,7 @@ import { isRefusal } from "@changeover/schema/refusal.ts";
 import type { Credential, HoldSeatsOptions } from "@changeover/core/hold-seats.ts";
 import { holdSeats } from "@changeover/core/hold-seats.ts";
 import { etagFor } from "./estate.ts";
+import { isUnreachable } from "./sampler.ts";
 
 export const AGENT_ID = "agt_conformance";
 
@@ -47,6 +48,14 @@ export interface Fault {
   readonly kind: "fault";
   readonly sqlstate?: string;
   readonly message: string;
+  /**
+   * The server went away, rather than answering. Decided structurally from the
+   * error — `AggregateError` from `pg-pool` carries an EMPTY `message` and its
+   * `ECONNREFUSED` lives on `code` and on the nested `errors`, so a substring
+   * test on the message finds nothing and the fault is silently counted as a
+   * boundary defect.
+   */
+  readonly unreachable: boolean;
 }
 
 export type Outcome = Grant | Refused | Fault;
@@ -88,11 +97,8 @@ export async function contend(
     if (isRefusal(err)) {
       return { kind: "refusal", code: err.code, status: err.status, detail: err.detail };
     }
-    return {
-      kind: "fault",
-      sqlstate: sqlstate(err),
-      message: err instanceof Error ? err.message : String(err),
-    };
+    const message = err instanceof Error && err.message !== "" ? err.message : String(err);
+    return { kind: "fault", sqlstate: sqlstate(err), message, unreachable: isUnreachable(err) };
   }
 }
 
@@ -104,6 +110,13 @@ export interface Tally {
   /** Refusal codes seen, with counts. A 409 that is not `seat_contended` is a different claim. */
   readonly codes: Readonly<Record<string, number>>;
   readonly fault_detail: readonly string[];
+  /**
+   * Faults that mean the server went away rather than that it refused.
+   * Counted separately because the first is `cannot prove` and the second is
+   * `FAIL`, and collapsing them is how a dead container gets reported as an
+   * oversell.
+   */
+  readonly unreachable: number;
 }
 
 export function tally(outcomes: readonly Outcome[]): Tally {
@@ -112,6 +125,7 @@ export function tally(outcomes: readonly Outcome[]): Tally {
   let refusals = 0;
   let deadlocks = 0;
   const fault_detail: string[] = [];
+  let unreachable = 0;
   for (const o of outcomes) {
     if (o.kind === "grant") grants++;
     else if (o.kind === "refusal") {
@@ -119,10 +133,11 @@ export function tally(outcomes: readonly Outcome[]): Tally {
       codes[o.code] = (codes[o.code] ?? 0) + 1;
     } else {
       if (o.sqlstate === "40P01") deadlocks++;
+      if (o.unreachable) unreachable++;
       fault_detail.push((o.sqlstate ?? "no-sqlstate") + " " + o.message.slice(0, 120));
     }
   }
-  return { grants, refusals, faults: fault_detail.length, deadlocks, codes, fault_detail };
+  return { grants, refusals, faults: fault_detail.length, deadlocks, codes, fault_detail, unreachable };
 }
 
 export function codeSummary(t: Tally): string {

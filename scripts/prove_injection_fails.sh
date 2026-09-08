@@ -36,28 +36,28 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
 # --- preconditions. Each one exits 2 and says how to satisfy it. -------------
-[ -d node_modules/@electric-sql/pglite ] || { echo "cannot prove -- PGlite not installed; run npm install at the repository root"; exit 2; }
-[ -d node_modules/canonicalize ]         || { echo "cannot prove -- canonicalize not installed; run npm install at the repository root"; exit 2; }
-[ -f scripts/lib/project.mjs ]           || { echo "cannot prove -- scripts/lib/project.mjs missing; C-ETAG needs the harness projector"; exit 2; }
-[ -f schemas/projection-0-1.json ]       || { echo "cannot prove -- schemas/projection-0-1.json missing"; exit 2; }
-[ -f fixtures/golden/delegation.json ]   || { echo "cannot prove -- fixtures/golden/delegation.json missing; O1 cannot be decided without the venue delegation record"; exit 2; }
-[ -f fixtures/golden/occasion-embassy-sat-1900.json ] || { echo "cannot prove -- the golden Occasions are missing; the byte-identity claim has nothing to be identical to"; exit 2; }
-[ -f packages/core/src/hold-seats.ts ]   || { echo "cannot prove -- packages/core/src/hold-seats.ts missing; there is no boundary to cross"; exit 2; }
-[ -f packages/core/src/access-log.ts ]   || { echo "cannot prove -- packages/core/src/access-log.ts missing; P1 is enforced there"; exit 2; }
-[ -f packages/conformance/src/inject/c-inject.ts ] || { echo "cannot prove -- packages/conformance/src/inject/c-inject.ts missing"; exit 2; }
+[ -d node_modules/@electric-sql/pglite ] || { echo "cannot prove — PGlite not installed; run npm install at the repository root"; exit 2; }
+[ -d node_modules/canonicalize ]         || { echo "cannot prove — canonicalize not installed; run npm install at the repository root"; exit 2; }
+[ -f scripts/lib/project.mjs ]           || { echo "cannot prove — scripts/lib/project.mjs missing; C-ETAG needs the harness projector"; exit 2; }
+[ -f schemas/projection-0-1.json ]       || { echo "cannot prove — schemas/projection-0-1.json missing"; exit 2; }
+[ -f fixtures/golden/delegation.json ]   || { echo "cannot prove — fixtures/golden/delegation.json missing; O1 cannot be decided without the venue delegation record"; exit 2; }
+[ -f fixtures/golden/occasion-embassy-sat-1900.json ] || { echo "cannot prove — the golden Occasions are missing; the byte-identity claim has nothing to be identical to"; exit 2; }
+[ -f packages/core/src/hold-seats.ts ]   || { echo "cannot prove — packages/core/src/hold-seats.ts missing; there is no boundary to cross"; exit 2; }
+[ -f packages/core/src/access-log.ts ]   || { echo "cannot prove — packages/core/src/access-log.ts missing; P1 is enforced there"; exit 2; }
+[ -f packages/conformance/src/inject/c-inject.ts ] || { echo "cannot prove — packages/conformance/src/inject/c-inject.ts missing"; exit 2; }
 
 node --input-type=module -e '
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import canonicalize from "canonicalize";
 import { project } from "./scripts/lib/project.mjs";
-import { openDb } from "./packages/store/src/db.ts";
+import { CannotProve, EXIT_CANNOT_PROVE, openDb } from "./packages/store/src/db.ts";
 import { runCInject } from "./packages/conformance/src/inject/c-inject.ts";
 import { runCPiiIngest } from "./packages/conformance/src/inject/c-pii-ingest.ts";
 
 let fail = 0, pass = 0;
-const ok  = (m) => { console.log("ok -- " + m); pass++; };
-const bad = (m) => { console.log("FAIL -- " + m); fail = 1; };
+const ok  = (m) => { console.log("ok — " + m); pass++; };
+const bad = (m) => { console.log("FAIL — " + m); fail = 1; };
 const report = (checks) => { for (const c of checks) (c.held ? ok : bad)(c.id + ": " + c.note); };
 
 const POINTERS = JSON.parse(readFileSync("schemas/projection-0-1.json", "utf8")).pointers;
@@ -65,13 +65,26 @@ const mint = (occasion) =>
   "1:" + createHash("sha256").update(Buffer.from(canonicalize(project(occasion, POINTERS)), "utf8")).digest("base64url");
 
 const db = await openDb();
+let unreachable = null;
 try {
   report(await runCInject({ db, mint }));
   report(runCPiiIngest());
 } catch (err) {
-  bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 5).join(" | ") : err));
+  // A precondition that vanished is not a failure. CannotProve is raised only
+  // where the estate this proof seeded was removed from the store underneath
+  // it, which is reachable against a shared CHANGEOVER_PG_URL and says nothing
+  // whatever about the boundary.
+  if (err instanceof CannotProve) unreachable = err;
+  else bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 5).join(" | ") : err));
 } finally {
   await db.close();
+}
+
+if (unreachable !== null) {
+  console.log("cannot prove — " + unreachable.message);
+  console.log("  to make it provable:");
+  for (const line of unreachable.remedy.split("\n")) console.log("    " + line);
+  process.exit(EXIT_CANNOT_PROVE);
 }
 
 if (pass < 20 && !fail) bad("only " + pass + " assertions ran; the proof did not reach the end");
