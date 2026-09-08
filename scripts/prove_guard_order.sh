@@ -1,8 +1,22 @@
 #!/usr/bin/env bash
 # C-REFUSE / CORE-002. G1's order is part of the wire contract, so this asserts
-# two different things about it: that the TABLE in packages/core/src/guards.ts
-# reproduces SPEC.md:430 exactly, and that the VERB actually returns the first
-# failure in that order when four guards fail at once.
+# three things about it: that the TABLE in packages/core/src/guards.ts
+# reproduces SPEC.md:430 exactly; that the VERB returns the first failure in
+# that order when four READ guards fail at once; and — section 5, added
+# 2026-08-26 — that a WRITING guard wins over a later one, for BOTH request
+# forms.
+#
+# Section 5 exists because its absence hid a real defect. Until this file
+# carried it, no run anywhere in the script made a step-8-to-12 guard the
+# winner, and no run anywhere sent a `selection` at all: the whole write-phase
+# half of G1 was asserted only as a static property of the table in guards.ts,
+# never as a property of the verb. The verb was meanwhile returning
+# `seat_contended` where G1 requires `cluster_fanout`, because
+# `chooseBestAvailable` threw from inside `lockAndReap` — which runs immediately
+# BEFORE the first writing step. The same fact answered `429 hold_budget_exhausted
+# / retry_after` to a request naming its seats and `409 seat_contended /
+# re_resolve` to a request that let the Server choose, and `re_resolve` for a
+# ceiling the agent cannot clear is the forever-loop §4.6 names.
 #
 # The cheaper check — "the refusal was one of the four" — would have passed a
 # server that reported seat_contended for a request whose etag had also moved,
@@ -24,6 +38,7 @@ node --input-type=module -e '
 import { readFileSync } from "node:fs";
 import { G1, G1_CODES_IN_ORDER, G1_READ_ONLY_THROUGH, firstInG1Order } from "./packages/core/src/guards.ts";
 import { holdSeats } from "./packages/core/src/hold-seats.ts";
+import { principalBudgets } from "./packages/core/src/budgets.ts";
 import { isRefusal } from "./packages/schema/src/refusal.ts";
 import { bench, etagFor, occasion, record, rowCounts, totalRows } from "./packages/core/test/lib/estate.ts";
 
@@ -91,10 +106,24 @@ const stale = {
   },
 };
 
+const SIB_A = "occ_run_a", SIB_B = "occ_run_b", SMALL = "occ_small";
+
 const b = await bench([
   occasion({ occasion_id: HOUSE, capacity: 20 }),
   occasion({ occasion_id: DARK, capacity: 20, availability_mode: "unknown" }),
   occasion({ occasion_id: CLOSED, capacity: 20, sales_cutoff_at: "2020-01-01T00:00:00+12:00" }),
+  // Two listings in ONE cluster, so a principal already holding in the cluster
+  // meets step 8 on the other. Separate showtimes, so step 9 is not what binds.
+  occasion({ occasion_id: SIB_A, capacity: 20, cluster: "clu_run" }),
+  occasion({ occasion_id: SIB_B, capacity: 20, cluster: "clu_run" }),
+  // The two houses section 5 empties. Seats are emptied by marking them SOLD —
+  // an exhibitor fact — rather than by giving them to rival principals: at
+  // max_held_fraction_per_showtime 0.02 a fixture that held a whole small house
+  // trips the PLATFORM ceiling during setup and never reaches the assertion.
+  // 200 seats, because max_held_fraction_per_showtime is 0.02: a principal may
+  // hold 2% of a screening, so a twenty-seat house caps them at ONE seat and
+  // they can never reach max_live_holds_per_showtime = 2 for step 9 to bind.
+  occasion({ occasion_id: SMALL, capacity: 200 }),
 ]);
 
 const refusalOf = async (fn) => {
@@ -184,6 +213,82 @@ try {
   rec.statements.length === 0
     ? ok("W2: a duplicate-bearing seats array is refused before any lock is taken, and before any transaction is opened")
     : bad("W2: a duplicate-bearing seats array issued " + rec.statements.length + " statement(s)");
+
+  /* ---- 5. A WRITING guard wins, and both request forms agree on which ----- */
+
+  const OTHER = { agent_id: "agt_reference", principal_scope: "ps_household_2" };
+  const hold = (occasion_id, seats, over = {}) => ({
+    occasion_id,
+    occasion_etag: etagFor(occasion_id),
+    sought: { occasion_id, occasion_etag: etagFor(occasion_id) },
+    seats,
+    requested_floor_ms: 120000,
+    ...over,
+  });
+  const pick = (occasion_id, quantity) => {
+    const r = hold(occasion_id, undefined, { selection: { mode: "best_available", quantity } });
+    delete r.seats;
+    return r;
+  };
+
+  // (a) step 8 beats step 12: the principal already holds in this (origin,
+  //     cluster), AND every seat in the target Occasion is held by somebody
+  //     else. G1 says cluster_fanout. Both forms must say it.
+  const BUDGETS = { budgets: principalBudgets() };
+  const SOLD_OUT = "update occasion_seat set status = \x27sold\x27 where occasion_id = $1";
+  const clusterCase = async (request) => {
+    await b.reset();
+    await b.db.query(SOLD_OUT, [SIB_B]);
+    await holdSeats(b.db, hold(SIB_A, ["A:1"]), AGENT, BUDGETS);
+    return refusalOf(() => holdSeats(b.db, request, AGENT, BUDGETS));
+  };
+  const clusterNamed = await clusterCase(hold(SIB_B, ["A:1"]));
+  const clusterChosen = await clusterCase(pick(SIB_B, 1));
+
+  clusterNamed !== null && clusterNamed.code === "cluster_fanout"
+    ? ok("step 8 beats step 12 for a request that NAMES its seats: cluster_fanout, not seat_contended")
+    : bad("naming the seats gave " + (clusterNamed === null ? "SUCCESS" : clusterNamed.code) + " where cluster_fanout was required");
+
+  clusterChosen !== null && clusterChosen.code === "cluster_fanout"
+    ? ok("and the same for a request that lets the Server CHOOSE, over a house it cannot fill: best_available answers cluster_fanout too")
+    : bad("best_available gave " + (clusterChosen === null ? "SUCCESS" : clusterChosen.code) + " where cluster_fanout was required");
+
+  // (b) step 9 beats step 12: the principal is at max_live_holds_per_showtime,
+  //     AND every seat left is held by others. G1 says the step-9 code.
+  const budgetCase = async (request) => {
+    await b.reset();
+    await holdSeats(b.db, hold(SMALL, ["A:1"]), AGENT, BUDGETS);
+    await holdSeats(b.db, hold(SMALL, ["A:2"]), AGENT, BUDGETS);
+    await b.db.query(
+      "update occasion_seat set status = \x27sold\x27 where occasion_id = $1 and seat_id <> all($2::text[])",
+      [SMALL, ["A:1", "A:2"]]);
+    return refusalOf(() => holdSeats(b.db, request, AGENT, BUDGETS));
+  };
+  const budgetNamed = await budgetCase(hold(SMALL, ["A:3"]));
+  const budgetChosen = await budgetCase(pick(SMALL, 1));
+
+  const BUDGET_CODES = ["hold_budget_exhausted", "seat_budget_exhausted"];
+  budgetNamed !== null && BUDGET_CODES.includes(budgetNamed.code)
+    ? ok("step 9 beats step 12 for a request that NAMES its seats: " + budgetNamed.code)
+    : bad("naming the seats gave " + (budgetNamed === null ? "SUCCESS" : budgetNamed.code) + " where a step-9 code was required");
+
+  budgetChosen !== null && budgetNamed !== null && budgetChosen.code === budgetNamed.code
+    ? ok("and best_available answers the SAME code — the request form does not decide what the agent is told")
+    : bad("best_available gave " + (budgetChosen === null ? "SUCCESS" : budgetChosen.code) +
+          " where naming the seats gave " + (budgetNamed === null ? "SUCCESS" : budgetNamed.code));
+
+  // (c) step 11 beats step 12: a seat the exhibitor sold AND another live Hold
+  //     covers. seat_unavailable is the exhibitor fact; seat_contended is not.
+  await b.reset();
+  await b.db.query("update occasion_seat set status = \x27sold\x27 where occasion_id = $1 and seat_id = $2", [HOUSE, "A:9"]);
+  const rival = await refusalOf(() => holdSeats(b.db, hold(HOUSE, ["A:9"]), OTHER));
+  const soldAndHeld = await refusalOf(() => holdSeats(b.db, hold(HOUSE, ["A:9"]), AGENT));
+  soldAndHeld !== null && soldAndHeld.code === "seat_unavailable"
+    ? ok("step 11 beats step 12: a seat the exhibitor sold is seat_unavailable, whatever else is true of it")
+    : bad("a sold seat answered " + (soldAndHeld === null ? "SUCCESS" : soldAndHeld.code));
+  rival === null || rival.code === "seat_unavailable"
+    ? ok("and it answers the same to every principal, because it is the exhibitor\x27s fact and not a contention")
+    : bad("the same sold seat answered " + rival.code + " to a second principal");
 } catch (err) {
   bad("unexpected: " + String(err && err.stack ? err.stack.split("\n").slice(0, 3).join(" | ") : err));
 } finally {

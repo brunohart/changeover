@@ -40,6 +40,7 @@ import { occasionSeedFromDocument, seatGrid, seedEstate } from "@changeover/stor
 import type { RefusalCode } from "@changeover/schema/refusal.ts";
 
 import { HOLD_POLICY_PUBLISHED } from "@changeover/core/budgets.ts";
+import type { Invocation } from "@changeover/core/access-log.ts";
 import { warrantedPolicy } from "@changeover/adapter-reference/capability.ts";
 import { createServer } from "@changeover/http/server.ts";
 import type { AccessLog, ServerOptions } from "@changeover/http/server.ts";
@@ -478,10 +479,18 @@ export function siteConfig(profile: "0" | "1" | "1S"): SiteConfig {
 
 /* ── 8 · The access-log seam, observed rather than replaced ────────────────── */
 
+/**
+ * What the binding handed the seam, verbatim.
+ *
+ * Was `{route, outcome, code}` until 2026-08-26 — a shape from which no
+ * conforming row could be built, because `agent_id` and `principal_scope` are
+ * both NOT NULL on `changeover_log.access_log` and neither was on it. It is now
+ * CORE-007's own `Invocation`, plus the instant the binding logged it at, so
+ * this recorder observes exactly the value `writeAccessLog` would have received.
+ */
 export interface RecordedInvocation {
-  readonly route: string;
-  readonly outcome: "ok" | "refused" | "error";
-  readonly code?: RefusalCode;
+  readonly invocation: Invocation;
+  readonly observed_at: string;
 }
 
 /**
@@ -503,8 +512,8 @@ export function recorder(): Recorder {
   const entries: RecordedInvocation[] = [];
   return {
     entries,
-    record(entry) {
-      entries.push({ ...entry });
+    async record(entry, observed_at) {
+      entries.push({ invocation: { ...entry }, observed_at });
     },
     clear() {
       entries.length = 0;

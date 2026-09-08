@@ -575,7 +575,68 @@ export function principalBudgets(
       await refuseSeatCeilingExhausted(tx, grant, policy);
       await refusePlatformSeatCeilingExhausted(tx, grant, policy);
     },
+
+    async probe(tx: Queryable, grant: BudgetContext): Promise<void> {
+      // The halves of steps 8 and 9 that do not need this Hold's row to exist.
+      //
+      // `hold_seats` calls this on ONE path: a `selection: best_available`
+      // request the house cannot fill. There is no Hold to insert on that path,
+      // so `reserve` cannot run — and until 2026-08-26 the consequence was that
+      // `seat_contended` was thrown from seat selection BEFORE steps 8 and 9
+      // had been evaluated at all. Measured on one fixture: the identical fact
+      // answered `429 hold_budget_exhausted / retry_after` to a request naming
+      // its seats and `409 seat_contended / re_resolve` to a request that let
+      // the Server choose. `re_resolve` for a ceiling the agent cannot clear is
+      // the forever-loop §4.6 invokes when it forbids branching on a bare 23505.
+      //
+      // `refuseSiteRateExhausted` and the seat ceilings are deliberately NOT
+      // here: each is a ceiling on what a grant would ADD, and this path grants
+      // nothing. Only the two whose subject is what the principal ALREADY holds
+      // can refuse a request that will not become a Hold.
+      await lockBudgetScopes(tx, grant);
+      await refuseDerivedFanout(tx, grant, policy);
+      await probeHoldSlotOccupancy(tx, grant, policy);
+    },
   };
+}
+
+/**
+ * X1's `max_live_holds_per_showtime`, read rather than taken.
+ *
+ * The same reap and the same count as {@link refuseHoldSlotExhausted}, and
+ * deliberately not its INSERT: taking a slot for a Hold that is not going to
+ * exist would lock the principal out of their own next request until the reap
+ * caught up with a row that never had a Hold to belong to.
+ */
+async function probeHoldSlotOccupancy(
+  tx: Queryable,
+  grant: BudgetContext,
+  policy: PublishedPolicy,
+): Promise<void> {
+  const limit = policy.value("max_live_holds_per_showtime");
+  const scope = [grant.agent_id, grant.principal_scope, grant.showtime_id];
+
+  await tx.query(
+    `delete from hold_slot s using hold h
+      where h.hold_id = s.hold_id
+        and s.agent_id = $1 and s.principal_scope = $2 and s.showtime_id = $3
+        and not ${OCCUPYING}`,
+    scope,
+  );
+
+  const wait = await tx.query<CountRow>(
+    `select count(*)::text as n, ${WAIT_MS} as wait_ms
+       from hold h
+      where h.agent_id = $1 and h.principal_scope = $2 and h.showtime_id = $3
+        and h.hold_id <> $4 and ${OCCUPYING}`,
+    [...scope, grant.hold_id],
+  );
+  const row = wait.rows[0];
+  if (Number(row?.n ?? 0) < limit) return;
+  throw refuse("hold_budget_exhausted", "You already hold seats for this screening.", {
+    detail: { limit, window_ms: NO_WINDOW_MS },
+    retry_after_ms: waitOf(row),
+  });
 }
 
 /* ── 8 · The five ceilings, one function each ──────────────────────────────── */
