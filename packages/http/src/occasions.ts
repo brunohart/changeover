@@ -65,6 +65,13 @@ export const STORE_OCCASIONS: OccasionSource = {
     // cursor stable. Ordering by starts_at alone would let two Occasions at one
     // instant swap between pages, and a caller paging a Saturday evening would
     // see one twice and the other never.
+    //
+    // Qualified, because a bare `starts_at` in ORDER BY names the select list's
+    // RFC 3339 text, not the column. Text order is not time order across a DST
+    // fold (02:15+12:00 sorts before the 02:30+13:00 it follows), so the order
+    // and the keyset predicate below disagreed and a page could skip an
+    // Occasion; and no index can serve a sort on text. occasion_page_idx
+    // (0004) serves this one.
     const params: unknown[] = [];
     const where: string[] = ["withdrawn = false", "document is not null"];
     if (query.from !== undefined) {
@@ -85,7 +92,7 @@ export const STORE_OCCASIONS: OccasionSource = {
     params.push(query.limit);
     const r = await q.query<OccasionRow & Record<string, unknown>>(
       `select ${COLUMNS} from occasion where ${where.join(" and ")}` +
-        ` order by starts_at, occasion_id limit $${params.length}`,
+        ` order by occasion.starts_at, occasion.occasion_id limit $${params.length}`,
       params,
     );
     return r.rows;
