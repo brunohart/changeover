@@ -553,3 +553,60 @@ test("the ceilings the capability document publishes are the ceilings the Server
   const holds = await bench.db.query<{ n: string }>("select count(*)::text as n from hold");
   assert.equal(Number(holds.rows[0]?.n), 2, "the refused grant left a row behind");
 });
+
+/* -- Hardening (2026-09-24) -------------------------------------------------- */
+
+test("a request-target no URL parser can read is a 404, and the Server is still answering", async () => {
+  const { connect } = await import("node:net");
+  const { port } = new URL(bench.origin);
+  for (const target of ["//[", "//h:99999", "http://["]) {
+    const head = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(port), "127.0.0.1", () =>
+        socket.write(`GET ${target} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n`));
+      let got = "";
+      socket.on("data", (d) => (got += d.toString()));
+      socket.on("end", () => resolve(got.split("\r\n")[0] ?? ""));
+      socket.on("error", reject);
+    });
+    assert.equal(head, "HTTP/1.1 404 Not Found", `request-target ${target}`);
+  }
+  const alive = await call(bench, "GET", "/.well-known/changeover");
+  assert.equal(alive.status, 200, "the process survived");
+});
+
+test("a credential the directory resolves for another site is not a credential here", async () => {
+  const { createServer } = await import("../src/server.ts");
+  const { tokenDirectory } = await import("../src/credential.ts");
+  const { siteConfig } = await import("./lib/http-bench.ts");
+  const server = createServer({
+    db: bench.db,
+    site: siteConfig("1"),
+    tokens: tokenDirectory({
+      tok_foreign: { agent_id: "agt_foreign", principal_scope: "prin_foreign", site_id: "site_elsewhere", surfaces: ["agent"] },
+    }),
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    const refused = await call({ ...bench, origin }, "POST", "/changeover/v0/holds", {
+      token: "tok_foreign",
+      headers: { "Idempotency-Key": key("foreign-site") },
+      body: holdBody(["A:30"]),
+    });
+    assertProblem(refused, "not_authorised", "a token issued for another site");
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("a malformed window, cursor or id is the caller's 4xx, never a 500", async () => {
+  const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64url");
+  for (const query of ["from=1", "from=2026", "from=2026-02-30T00:00:00Z", `cursor=${b64("x y")}`]) {
+    const r = await call(bench, "GET", `/changeover/v0/occasions?${query}`, { token: AGENT_TOKEN });
+    assertProblem(r, "schema_validation", query);
+  }
+  for (const path of ["/changeover/v0/occasions/%00", "/changeover/v0/holds/%00"]) {
+    const r = await call(bench, "GET", path, { token: AGENT_TOKEN });
+    assert.equal(r.status, 404, path);
+  }
+});
