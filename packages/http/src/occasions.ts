@@ -127,10 +127,22 @@ export function decodeCursor(value: string): Cursor {
     throw refuse("schema_validation", "That cursor is not a cursor this Server minted.");
   }
   const at = decoded.indexOf(CURSOR_SEPARATOR);
-  if (at < 1 || at === decoded.length - 1) {
+  if (at < 1 || at === decoded.length - 1 || !isInstant(decoded.slice(0, at))) {
     throw refuse("schema_validation", "That cursor is not a cursor this Server minted.");
   }
   return { starts_at: decoded.slice(0, at), occasion_id: decoded.slice(at + 1) };
+}
+
+/**
+ * RFC 3339 with a MANDATORY offset — the only instant shape on this wire.
+ * `Date.parse` alone is not this check: it accepts `1`, `2026` and
+ * `Thu Sep 24 2026`, which Postgres then refuses (or reads in the session's
+ * zone), and a refusal from the store is a 500, not the caller's 400.
+ */
+const INSTANT = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
+
+export function isInstant(value: string): boolean {
+  return INSTANT.test(value) && !Number.isNaN(Date.parse(value));
 }
 
 /* -- Freshness -------------------------------------------------------------- */

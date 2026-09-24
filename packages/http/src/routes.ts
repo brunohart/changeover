@@ -199,6 +199,9 @@ function matchOne(route: Route, parts: readonly string[]): Record<string, string
       } catch {
         return null;
       }
+      // Nor does `%00`: Postgres text cannot hold a NUL, so no stored id has
+      // one, and passing it on is 22021 from the store — a 500, not a 404.
+      if (decoded.includes("\u0000")) return null;
       params[t.slice(1, -1)] = decoded;
       continue;
     }

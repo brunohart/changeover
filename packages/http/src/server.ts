@@ -44,6 +44,7 @@ import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 
 import type { Db } from "@changeover/store/db.ts";
+import { sqlstate } from "@changeover/store/db.ts";
 import type { DurationMs, RefusalCode, Rfc3339 } from "@changeover/schema/refusal.ts";
 import {
   REFUSAL_STATUS,
@@ -103,12 +104,13 @@ import {
   decodeCursor,
   encodeCursor,
   fitToProseBudget,
+  isInstant,
   maxStalenessMs,
 } from "./occasions.ts";
 import type { ChangedPathsSource, OccasionSource } from "./occasions.ts";
 import { PROBLEM_CONTENT_TYPE, blankProblem, problemOf } from "./problem.ts";
 import { SURFACE, lookup } from "./routes.ts";
-import type { Route } from "./routes.ts";
+import type { Route, RouteLookup } from "./routes.ts";
 
 /* -- Options ---------------------------------------------------------------- */
 
@@ -306,10 +308,16 @@ export async function handle(
   // this file already accepts as the legitimate stand-in wherever the store
   // cannot answer. K4 binds the instants a Server *asserts about Holds*; a 404
   // asserts nothing about a Hold.
-  const url = new URL(request.url, "http://route.invalid");
-  const found = lookup(request.method, url.pathname);
+  //
+  // `new URL` THROWS on a request-target no path can be read from — `//[`,
+  // `//host:99999` — and this line is outside the catch below. Until
+  // 2026-09-24 that rejection escaped `createServer`'s un-awaited promise and
+  // exited the process: one unauthenticated request line took the Server down.
+  // A target with no readable path names no resource, so it is this 404.
+  const url = targetOf(request.url);
+  const found: RouteLookup = url === null ? { outcome: "no_route" } : lookup(request.method, url.pathname);
 
-  if (found.outcome === "no_route") {
+  if (url === null || found.outcome === "no_route") {
     const at = processTimeRfc3339();
     return stamped(
       { status: 404, headers: { "Content-Type": PROBLEM_CONTENT_TYPE }, body: blankProblem(404, "Not Found", at) },
@@ -387,6 +395,14 @@ async function currentTime(db: Db): Promise<Rfc3339> {
     return await serverTime(db);
   } catch {
     return processTimeRfc3339();
+  }
+}
+
+function targetOf(raw: string): URL | null {
+  try {
+    return new URL(raw, "http://route.invalid");
+  } catch {
+    return null;
   }
 }
 
@@ -550,7 +566,11 @@ function authorise(
   matched: Route,
 ): SiteCredential | null {
   const bearer = bearerToken(headerOf(request, HEADER.authorization));
-  const credential = bearer.present ? options.tokens.lookup(bearer.token) : null;
+  const resolved = bearer.present ? options.tokens.lookup(bearer.token) : null;
+  // §6.3: a token is issued PER SITE. One the directory resolves for another
+  // site is not a credential here — `not_authorised` is "lacks the site" — and
+  // a directory shared across a circuit's sites must not make it one.
+  const credential = resolved !== null && resolved.site_id === options.site.site_id ? resolved : null;
 
   if (matched.surface === SURFACE.public) return credential;
 
@@ -660,7 +680,16 @@ async function serveOccasions(options: ServerOptions, url: URL, now: Rfc3339): P
 
   // One more than asked for, so "is there a next page" is a fact rather than a
   // guess from a full page.
-  const rows = await source.page(options.db, { from, to, after, limit: page_size + 1 });
+  const rows = await source.page(options.db, { from, to, after, limit: page_size + 1 }).catch((err: unknown) => {
+    // Class 22 is Postgres refusing a VALUE, and every value in this statement
+    // the caller did not choose is a server constant: an instant the shape
+    // check passed but the calendar does not have (02-30, year 0000, +16:00),
+    // or a NUL in the cursor. The caller's 400, not a 500.
+    if (sqlstate(err)?.startsWith("22")) {
+      throw refuse("schema_validation", "That window or cursor names an instant this Server cannot read.");
+    }
+    throw err;
+  });
   const page = rows.slice(0, page_size);
   const documents = page.map((r) => r.document);
   const fits = fitToProseBudget(documents);
@@ -690,7 +719,7 @@ async function serveOccasions(options: ServerOptions, url: URL, now: Rfc3339): P
 function instantParam(url: URL, name: string): Rfc3339 | undefined {
   const value = url.searchParams.get(name);
   if (value === null) return undefined;
-  if (Number.isNaN(Date.parse(value))) {
+  if (!isInstant(value)) {
     throw refuse("schema_validation", `${name} is an RFC 3339 instant with an offset.`);
   }
   return value;
@@ -1162,7 +1191,12 @@ export function createServer(options: ServerOptions): Server {
       }
       res.writeHead(response.status, headers);
       res.end(response.body === undefined ? undefined : encoded);
-    })();
+    })().catch((err: unknown) => {
+      // Last line of defence. Nothing thrown while serving ONE request may end
+      // the process that serves every other one.
+      logInternal(err);
+      res.destroy();
+    });
   });
 }
 
