@@ -4,14 +4,20 @@ on:
   push:
   pull_request:
 
+# Nothing here writes to the repository, and `npm install` runs third-party
+# install scripts with this token in reach: read is the whole grant.
+permissions:
+  contents: read
+
 jobs:
   proofs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0   # prove_spec_first.sh reads the ROOT commit
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
       - run: npm install --no-audit --no-fund
