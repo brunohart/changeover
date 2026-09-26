@@ -14,7 +14,7 @@ Read **this**, not the specification, unless a section here sends you there. `SP
 ### Read only the lines you need
 
 ```bash
-cd /Users/brunohart/changeover
+cd /Users/brunohart/Developer/changeover
 sed -n '303,336p' SPEC.md            # §4.3 TTL semantics + §4.4 Clock
 grep -n '^#\{1,3\} ' SPEC.md         # re-derive the section map
 ```
@@ -122,7 +122,7 @@ Two places need "a list of things" and in both the list is **the filesystem**, d
 
 **One owner per path.** If you need something inside another item's glob, you do not edit it — you state the need in your return and the integrator resolves it. A file edited by two agents is a file that has been destroyed by two agents.
 
-Paths are repository-relative to `/Users/brunohart/changeover`.
+Paths are repository-relative to `/Users/brunohart/Developer/changeover`.
 
 | Item | Owns (exclusively) | Must never touch |
 |---|---|---|
